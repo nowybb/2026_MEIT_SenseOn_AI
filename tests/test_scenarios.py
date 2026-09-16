@@ -21,12 +21,9 @@ FRAME_HEIGHT = 480
 
 
 def analyze_scenario(frames):
-    """
-    하나의 Mock Scenario를 현재 AI2 파이프라인으로 분석한다.
-    """
-
     track_history = TrackHistory(max_history=10)
 
+    # Mock frame 입력
     for detections in frames:
         for detection in detections:
             track_history.update(detection)
