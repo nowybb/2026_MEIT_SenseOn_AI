@@ -1,5 +1,6 @@
 from data.mock_data import MOCK_FRAMES
 from ai2.track_history import TrackHistory
+from ai2.approach import calculate_approach_rate, is_approaching
 
 
 def main():
@@ -35,6 +36,23 @@ def main():
                 f"center=({item['center_x']}, {item['center_y']})"
             )
 
+        print("\n===== Approach Analysis =====")
+
+    for track_id in track_history.get_active_track_ids():
+
+        history = track_history.get_history(track_id)
+
+        approach_rate = calculate_approach_rate(history)
+        approaching = is_approaching(history)
+
+        class_name = history[-1]["class_name"]
+
+        print(
+            f"Track ID: {track_id} | "
+            f"Class: {class_name} | "
+            f"ApproachRate: {approach_rate:.3f} /s | "
+            f"Approaching: {approaching}"
+        )
 
 if __name__ == "__main__":
     main()
