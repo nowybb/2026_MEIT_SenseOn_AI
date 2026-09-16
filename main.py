@@ -1,6 +1,10 @@
 from data.mock_data import MOCK_FRAMES
 from ai2.track_history import TrackHistory
 from ai2.approach import calculate_approach_rate, is_approaching
+from ai2.trajectory import (
+    calculate_velocity,
+    predict_future_position,
+)
 
 
 def main():
@@ -52,6 +56,30 @@ def main():
             f"Class: {class_name} | "
             f"ApproachRate: {approach_rate:.3f} /s | "
             f"Approaching: {approaching}"
+        )
+        
+        print("\n===== Trajectory Analysis =====")
+
+    for track_id in track_history.get_active_track_ids():
+
+        history = track_history.get_history(track_id)
+
+        vx, vy = calculate_velocity(history)
+
+        predicted_position = predict_future_position(
+            history,
+            future_time=1.0
+        )
+
+        class_name = history[-1]["class_name"]
+
+        print(
+            f"Track ID: {track_id} | "
+            f"Class: {class_name} | "
+            f"Velocity: ({vx:.2f}, {vy:.2f}) px/s | "
+            f"Predicted Position: "
+            f"({predicted_position[0]:.2f}, "
+            f"{predicted_position[1]:.2f})"
         )
 
 if __name__ == "__main__":
