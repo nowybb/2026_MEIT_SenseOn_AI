@@ -1,0 +1,17 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# AI1 test data
+ai1/videos/
+ai1/outputs/
+ai1/runs/
+
+# Model weights
+*.pt
+
+# Environment
+.env
+.DS_Store
