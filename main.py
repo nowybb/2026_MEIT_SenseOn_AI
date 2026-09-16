@@ -9,6 +9,7 @@ from ai2.collision import (
     create_collision_zone,
     check_path_collision,
 )
+from ai2.ttc import calculate_visual_ttc
 
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
@@ -129,6 +130,27 @@ def main():
             f"({predicted_position[0]:.2f}, "
             f"{predicted_position[1]:.2f}) | "
             f"PathCollision: {path_collision}"
+        )
+    
+        print("\n===== Visual TTC Analysis =====")
+
+    for track_id in track_history.get_active_track_ids():
+
+        history = track_history.get_history(track_id)
+
+        visual_ttc = calculate_visual_ttc(history)
+
+        class_name = history[-1]["class_name"]
+
+        if visual_ttc is None:
+            ttc_text = "N/A"
+        else:
+            ttc_text = f"{visual_ttc:.2f} s"
+
+        print(
+            f"Track ID: {track_id} | "
+            f"Class: {class_name} | "
+            f"Visual TTC: {ttc_text}"
         )
     
 if __name__ == "__main__":
