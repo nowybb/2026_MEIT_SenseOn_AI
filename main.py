@@ -5,11 +5,26 @@ from ai2.trajectory import (
     calculate_velocity,
     predict_future_position,
 )
+from ai2.collision import (
+    create_collision_zone,
+    check_path_collision,
+)
+
+FRAME_WIDTH = 640
+FRAME_HEIGHT = 480
 
 
 def main():
 
     track_history = TrackHistory(max_history=10)
+    
+    # Collision Zone 생성
+    collision_zone = create_collision_zone(
+        FRAME_WIDTH,
+        FRAME_HEIGHT
+    )
+
+    print(f"\nCollision Zone: {collision_zone}")
 
     for frame_number, detections in enumerate(MOCK_FRAMES):
 
@@ -82,5 +97,39 @@ def main():
             f"{predicted_position[1]:.2f})"
         )
 
+        print("\n===== Collision Analysis =====")
+
+    for track_id in track_history.get_active_track_ids():
+
+        history = track_history.get_history(track_id)
+
+        current = history[-1]
+
+        current_position = (
+            current["center_x"],
+            current["center_y"],
+        )
+
+        predicted_position = predict_future_position(
+            history,
+            future_time=1.0
+        )
+
+        path_collision = check_path_collision(
+            current_position,
+            predicted_position,
+            collision_zone,
+        )
+
+        print(
+            f"Track ID: {track_id} | "
+            f"Class: {current['class_name']} | "
+            f"Current: {current_position} | "
+            f"Predicted: "
+            f"({predicted_position[0]:.2f}, "
+            f"{predicted_position[1]:.2f}) | "
+            f"PathCollision: {path_collision}"
+        )
+    
 if __name__ == "__main__":
     main()
