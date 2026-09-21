@@ -1,3 +1,7 @@
+# tests/test_collision.py
+
+import pytest
+
 from ai2.collision import (
     create_collision_zone,
     is_point_in_zone,
@@ -5,8 +9,27 @@ from ai2.collision import (
     calculate_bbox_zone_overlap_ratio,
     predict_future_bbox,
     check_bbox_path_collision,
+    calculate_bbox_zone_overlap,
+    check_bbox_path_collision_exact,
 )
 
+
+# ============================================================
+# 공통 Collision Zone
+# main 테스트에서 사용
+# ============================================================
+
+ZONE = (
+    40,
+    40,
+    60,
+    60,
+)
+
+
+# ============================================================
+# 1. 기존 Collision Zone 테스트
+# ============================================================
 
 def test_create_collision_zone():
 
@@ -38,6 +61,10 @@ def test_point_inside_collision_zone():
         zone,
     )
 
+
+# ============================================================
+# 2. 기존 center 기반 collision 테스트
+# ============================================================
 
 def test_center_path_collision():
 
@@ -74,6 +101,10 @@ def test_center_path_misses_zone():
 
     assert result is False
 
+
+# ============================================================
+# 3. ai2 bbox overlap 방식 테스트
+# ============================================================
 
 def test_bbox_overlap_ratio():
 
@@ -175,3 +206,192 @@ def test_bbox_detects_collision_center_misses():
 
     assert center_result is False
     assert bbox_result is True
+
+
+# ============================================================
+# 4. main bbox overlap 계산 테스트
+# ============================================================
+
+def test_partial_bbox_overlap():
+
+    bbox = (
+        25,
+        42,
+        45,
+        58,
+    )
+
+    ratio = calculate_bbox_zone_overlap(
+        bbox,
+        ZONE,
+    )
+
+    # 교집합 = 5 * 16
+    # bbox 면적 = 20 * 16
+    # 겹침 비율 = 0.25
+    assert ratio == pytest.approx(
+        0.25
+    )
+
+
+def test_no_bbox_overlap():
+
+    bbox = (
+        0,
+        0,
+        10,
+        10,
+    )
+
+    ratio = calculate_bbox_zone_overlap(
+        bbox,
+        ZONE,
+    )
+
+    assert ratio == 0.0
+
+
+# ============================================================
+# 5. main exact bbox collision 테스트
+# ============================================================
+
+def test_exact_bbox_overlaps_even_if_center_outside():
+
+    bbox = (
+        25,
+        42,
+        45,
+        58,
+    )
+
+    center = (
+        35,
+        50,
+    )
+
+    # 기존 중심점 방식
+    old_result = check_path_collision(
+        center,
+        center,
+        ZONE,
+    )
+
+    # main exact bbox 방식
+    exact_result = (
+        check_bbox_path_collision_exact(
+            bbox,
+            center,
+            center,
+            ZONE,
+        )
+    )
+
+    assert old_result is False
+    assert exact_result is True
+
+
+def test_exact_bbox_path_crosses_zone():
+
+    bbox = (
+        0,
+        42,
+        10,
+        52,
+    )
+
+    current = (
+        5,
+        47,
+    )
+
+    predicted = (
+        95,
+        47,
+    )
+
+    result = (
+        check_bbox_path_collision_exact(
+            bbox,
+            current,
+            predicted,
+            ZONE,
+        )
+    )
+
+    assert result is True
+
+
+def test_exact_bbox_path_misses_zone():
+
+    bbox = (
+        0,
+        0,
+        10,
+        10,
+    )
+
+    current = (
+        5,
+        5,
+    )
+
+    predicted = (
+        95,
+        5,
+    )
+
+    result = (
+        check_bbox_path_collision_exact(
+            bbox,
+            current,
+            predicted,
+            ZONE,
+        )
+    )
+
+    assert result is False
+
+
+def test_exact_fast_bbox_path_crosses_zone():
+
+    bbox = (
+        0,
+        42,
+        10,
+        52,
+    )
+
+    current = (
+        5,
+        47,
+    )
+
+    predicted = (
+        1000,
+        47,
+    )
+
+    result = (
+        check_bbox_path_collision_exact(
+            bbox,
+            current,
+            predicted,
+            ZONE,
+        )
+    )
+
+    assert result is True
+
+
+def test_exact_invalid_bbox():
+
+    result = (
+        check_bbox_path_collision_exact(
+            bbox=(10, 10, 10, 20),
+            current_position=(10, 15),
+            predicted_position=(50, 15),
+            collision_zone=ZONE,
+        )
+    )
+
+    assert result is False
