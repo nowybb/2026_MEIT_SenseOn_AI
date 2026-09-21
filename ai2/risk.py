@@ -283,3 +283,154 @@ class RiskStabilizer:
         """
 
         self.states.clear()
+        
+class RiskStabilizerV2:
+    """
+    Risk Level 안정화 V2.
+
+    원칙:
+    - 위험 수준 상승은 즉시 반영한다.
+    - 현재 안정화 상태보다 낮은 위험이 연속으로 관찰되면
+      release_frames 이후 위험 수준을 낮춘다.
+    - 하락 대기 중 SAFE/CAUTION이 섞여도
+      현재 stable level보다 낮기만 하면 카운트를 유지한다.
+    - 다시 현재 stable level 이상이 나오면
+      하락 카운트를 초기화한다.
+    """
+
+    def __init__(self, release_frames=3):
+
+        if release_frames < 1:
+            raise ValueError(
+                "release_frames는 1 이상이어야 합니다."
+            )
+
+        self.release_frames = release_frames
+        self.states = {}
+
+    def update(
+        self,
+        track_id,
+        raw_risk_level,
+    ):
+
+        if raw_risk_level not in RISK_PRIORITY:
+            raise ValueError(
+                f"알 수 없는 risk level: {raw_risk_level}"
+            )
+
+        # 처음 등장한 객체
+        if track_id not in self.states:
+
+            self.states[track_id] = {
+                "stable_level": raw_risk_level,
+                "lower_count": 0,
+                "lowest_level": raw_risk_level,
+            }
+
+            return raw_risk_level
+
+        state = self.states[
+            track_id
+        ]
+
+        stable_level = state[
+            "stable_level"
+        ]
+
+        stable_priority = RISK_PRIORITY[
+            stable_level
+        ]
+
+        raw_priority = RISK_PRIORITY[
+            raw_risk_level
+        ]
+
+        # --------------------------------------------------
+        # 같은 상태
+        # --------------------------------------------------
+
+        if raw_priority == stable_priority:
+
+            state["lower_count"] = 0
+            state["lowest_level"] = stable_level
+
+            return stable_level
+
+        # --------------------------------------------------
+        # 위험 상승
+        # 즉시 반영
+        # --------------------------------------------------
+
+        if raw_priority > stable_priority:
+
+            state["stable_level"] = raw_risk_level
+            state["lower_count"] = 0
+            state["lowest_level"] = raw_risk_level
+
+            return raw_risk_level
+
+        # --------------------------------------------------
+        # 위험 하락 후보
+        #
+        # 정확히 같은 상태일 필요 없이
+        # 현재 stable보다 낮으면 카운트
+        # --------------------------------------------------
+
+        state["lower_count"] += 1
+
+        lowest_level = state[
+            "lowest_level"
+        ]
+
+        if (
+            RISK_PRIORITY[raw_risk_level]
+            < RISK_PRIORITY[lowest_level]
+        ):
+
+            state[
+                "lowest_level"
+            ] = raw_risk_level
+
+        # --------------------------------------------------
+        # 하락 확정
+        # --------------------------------------------------
+
+        if (
+            state["lower_count"]
+            >= self.release_frames
+        ):
+
+            new_level = state[
+                "lowest_level"
+            ]
+
+            state[
+                "stable_level"
+            ] = new_level
+
+            state[
+                "lower_count"
+            ] = 0
+
+            state[
+                "lowest_level"
+            ] = new_level
+
+        return state[
+            "stable_level"
+        ]
+
+    def remove_track(
+        self,
+        track_id,
+    ):
+
+        self.states.pop(
+            track_id,
+            None,
+        )
+
+    def reset(self):
+
+        self.states.clear()

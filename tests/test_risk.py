@@ -2,6 +2,7 @@ from ai2.risk import (
     determine_risk_level,
     select_primary_hazard,
     RiskStabilizer,
+    RiskStabilizerV2,
 )
 
 
@@ -256,7 +257,7 @@ def test_tracks_are_independent():
 
 
 def test_remove_track():
-
+    
     stabilizer = RiskStabilizer(
         release_frames=3
     )
@@ -274,6 +275,166 @@ def test_remove_track():
     assert (
         stabilizer.update(
             1,
+            "SAFE",
+        )
+        == "SAFE"
+    )
+
+
+def test_v2_mixed_lower_levels_allow_release():
+
+    stabilizer = RiskStabilizerV2(
+        release_frames=3
+    )
+
+    assert (
+        stabilizer.update(
+            1,
+            "DANGER",
+        )
+        == "DANGER"
+    )
+
+    assert (
+        stabilizer.update(
+            1,
+            "SAFE",
+        )
+        == "DANGER"
+    )
+
+    assert (
+        stabilizer.update(
+            1,
+            "CAUTION",
+        )
+        == "DANGER"
+    )
+
+    # SAFE / CAUTION / SAFE 모두
+    # DANGER보다 낮으므로 3회 연속 하락으로 인정
+    assert (
+        stabilizer.update(
+            1,
+            "SAFE",
+        )
+        == "SAFE"
+    )
+
+
+def test_v2_same_level_resets_release_counter():
+
+    stabilizer = RiskStabilizerV2(
+        release_frames=3
+    )
+
+    stabilizer.update(
+        1,
+        "DANGER",
+    )
+
+    assert (
+        stabilizer.update(
+            1,
+            "SAFE",
+        )
+        == "DANGER"
+    )
+
+    assert (
+        stabilizer.update(
+            1,
+            "CAUTION",
+        )
+        == "DANGER"
+    )
+
+    # 다시 DANGER가 나오면 하락 카운터 초기화
+    assert (
+        stabilizer.update(
+            1,
+            "DANGER",
+        )
+        == "DANGER"
+    )
+
+    assert (
+        stabilizer.update(
+            1,
+            "SAFE",
+        )
+        == "DANGER"
+    )
+
+
+def test_v2_risk_increase_is_immediate():
+
+    stabilizer = RiskStabilizerV2(
+        release_frames=3
+    )
+
+    assert (
+        stabilizer.update(
+            1,
+            "SAFE",
+        )
+        == "SAFE"
+    )
+
+    assert (
+        stabilizer.update(
+            1,
+            "CAUTION",
+        )
+        == "CAUTION"
+    )
+
+    assert (
+        stabilizer.update(
+            1,
+            "DANGER",
+        )
+        == "DANGER"
+    )
+
+
+def test_v2_tracks_are_independent():
+
+    stabilizer = RiskStabilizerV2(
+        release_frames=3
+    )
+
+    stabilizer.update(
+        1,
+        "DANGER",
+    )
+
+    stabilizer.update(
+        2,
+        "SAFE",
+    )
+
+    stabilizer.update(
+        1,
+        "SAFE",
+    )
+
+    stabilizer.update(
+        1,
+        "CAUTION",
+    )
+
+    assert (
+        stabilizer.update(
+            1,
+            "SAFE",
+        )
+        == "SAFE"
+    )
+
+    assert (
+        stabilizer.update(
+            2,
             "SAFE",
         )
         == "SAFE"
