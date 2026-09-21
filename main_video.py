@@ -16,7 +16,7 @@ from ai2.collision import (
     create_collision_zone,
     check_path_collision,
     calculate_bbox_zone_overlap,
-    check_bbox_path_collision,
+    check_bbox_path_collision_exact,
 )
 from ai2.proximity import calculate_proximity_features
 from ai2.ttc import calculate_visual_ttc
@@ -102,6 +102,13 @@ CSV_COLUMNS = [
     "stable_predicted_x",
     "stable_predicted_y",
     "stable_path_collision",
+    
+    "baseline_risk",
+    "stable_trajectory_risk",
+    "bbox_collision_risk",
+    "ttc_required_risk",
+    
+    "stable_ttc_required_risk",
 ]
 
 
@@ -499,6 +506,13 @@ def process_video(video_name):
                         stable_path_collision = None
 
                         risk_level = "UNKNOWN"
+                        
+                        baseline_risk = "UNKNOWN"
+                        stable_trajectory_risk = "UNKNOWN"
+                        bbox_collision_risk = "UNKNOWN"
+                        ttc_required_risk = "UNKNOWN"
+                        
+                        stable_ttc_required_risk = "UNKNOWN"
 
                         # -------------------------------------
                         # 분석 가능한 기록인지 확인
@@ -558,11 +572,12 @@ def process_video(video_name):
                             )
 
                             bbox_path_collision = (
-                                check_bbox_path_collision(
+                                check_bbox_path_collision_exact(
                                     bbox=bbox,
                                     current_position=current_position,
                                     predicted_position=predicted_position,
                                     collision_zone=collision_zone,
+                                    
                                 )
                             )
 
@@ -607,13 +622,64 @@ def process_video(video_name):
                             # stable_path_collision 사용 X
                             # =================================
 
-                            risk_level = (
-                                determine_risk_level(
+                            # =================================
+                            # Final Risk
+                            # Stable Trajectory + TTC Required
+                            # =================================
+
+                            if visual_ttc is None:
+                                risk_level = "SAFE"
+
+                            else:
+                                risk_level = determine_risk_level(
+                                    approaching=approaching,
+                                    path_collision=stable_path_collision,
+                                    visual_ttc=visual_ttc,
+                                )
+                            
+                            # =================================
+                            # GT 후보 비교용 Risk
+                            # =================================
+
+                            # 1. Baseline
+                            baseline_risk = risk_level
+
+                            # 2. Stable trajectory
+                            if stable_path_collision is not None:
+                                stable_trajectory_risk = determine_risk_level(
+                                    approaching,
+                                    stable_path_collision,
+                                    visual_ttc,
+                                )
+
+                            # 3. BBox collision
+                            if bbox_path_collision is not None:
+                                bbox_collision_risk = determine_risk_level(
+                                    approaching,
+                                    bbox_path_collision,
+                                    visual_ttc,
+                                )
+
+                            # 4. TTC가 계산될 때만 경고
+                            if visual_ttc is None:
+                                ttc_required_risk = "SAFE"
+                            else:
+                                ttc_required_risk = determine_risk_level(
                                     approaching,
                                     path_collision,
                                     visual_ttc,
                                 )
-                            )
+                                
+                            # 5. Stable trajectory + TTC Required
+                            if visual_ttc is None:
+                                stable_ttc_required_risk = "SAFE"
+
+                            elif stable_path_collision is not None:
+                                stable_ttc_required_risk = determine_risk_level(
+                                    approaching,
+                                    stable_path_collision,
+                                    visual_ttc,
+                                )
 
                             # =================================
                             # 6. 현재 객체 저장
@@ -742,6 +808,12 @@ def process_video(video_name):
                                 if stable_path_collision is not None
                                 else ""
                             ),
+                            
+                            baseline_risk,
+                            stable_trajectory_risk,
+                            bbox_collision_risk,
+                            ttc_required_risk,
+                            stable_ttc_required_risk,
                         ])
 
                         # =====================================

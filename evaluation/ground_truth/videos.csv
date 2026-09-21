@@ -1,0 +1,7 @@
+video,duration_sec,label_status,notes
+test1.mp4,,complete,전체 구간 SAFE
+test2.mp4,,complete,전체 구간 SAFE
+test3.mp4,12.42,complete,0.54초부터 영상 끝까지 위험
+test4.mp4,9.88,complete,0.96~4.70초 위험
+test5.mp4,19.04,complete,9.67초부터 영상 끝까지 위험
+test_receding.mp4,25.75,complete,9.40~18.76초 위험
