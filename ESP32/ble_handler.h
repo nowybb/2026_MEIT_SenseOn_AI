@@ -1,3 +1,6 @@
+// ==============================
+// ble_handler.h
+// ==============================
 #ifndef BLE_HANDLER_H
 #define BLE_HANDLER_H
 
@@ -9,181 +12,235 @@
 #include <BLE2902.h>
 
 #include "config.h"
+#include "motor_control.h"
 
 
 String latestPacket = "";
 
 bool newPacketAvailable = false;
+
 bool piConnected = false;
 
 unsigned long lastPacketTime = 0;
 
-
-BLECharacteristic* notifyCharacteristic = nullptr;
-
-BLEServer* bleServer = nullptr;
+BLECharacteristic*
+  notifyCharacteristic = nullptr;
 
 
-// 연결 / 연결 해제
-class ServerCallbacks : public BLEServerCallbacks {
+// BLE 연결 상태
+class ServerCallbacks :
+  public BLEServerCallbacks {
 
-    void onConnect(BLEServer* server) override {
+  void onConnect(
+    BLEServer* server
+  ) override {
 
-        piConnected = true;
+    piConnected = true;
 
-        Serial.println("[BLE] Raspberry Pi connected");
-    }
+    Serial.println(
+      "[BLE] Raspberry Pi connected"
+    );
+  }
 
 
-    void onDisconnect(BLEServer* server) override {
+  void onDisconnect(
+    BLEServer* server
+  ) override {
 
-        piConnected = false;
+    piConnected = false;
 
-        Serial.println("[BLE] Raspberry Pi disconnected");
+    stopMotors();
 
-        delay(100);
 
-        server->startAdvertising();
+    Serial.println(
+      "[BLE] Raspberry Pi disconnected"
+    );
 
-        Serial.println("[BLE] Advertising restarted");
-    }
+
+    delay(100);
+
+
+    server->startAdvertising();
+
+
+    Serial.println(
+      "[BLE] Advertising restarted"
+    );
+  }
 };
 
 
 // Pi -> ESP32 데이터 수신
-class WriteCallbacks : public BLECharacteristicCallbacks {
+class WriteCallbacks :
+  public BLECharacteristicCallbacks {
 
-    void onWrite(BLECharacteristic* characteristic) override {
+  void onWrite(
+    BLECharacteristic* characteristic
+  ) override {
 
-        String value =
-            characteristic->getValue();
-
-
-        if (value.length() == 0) {
-            return;
-        }
+    String value =
+      characteristic->getValue();
 
 
-        latestPacket = value;
-
-        newPacketAvailable = true;
-
-        lastPacketTime = millis();
-
-
-        Serial.print("[BLE RX] ");
-        Serial.println(latestPacket);
+    if (value.length() == 0) {
+      return;
     }
+
+
+    latestPacket =
+      value;
+
+
+    newPacketAvailable =
+      true;
+
+
+    lastPacketTime =
+      millis();
+
+
+    Serial.print(
+      "[BLE RX] "
+    );
+
+    Serial.println(
+      latestPacket
+    );
+  }
 };
 
 
+// BLE 시작
 void setupBLE() {
 
-    BLEDevice::init(
-        DEVICE_NAME
+  BLEDevice::init(
+    DEVICE_NAME
+  );
+
+
+  BLEServer* server =
+    BLEDevice::createServer();
+
+
+  server->setCallbacks(
+    new ServerCallbacks()
+  );
+
+
+  BLEService* service =
+    server->createService(
+      SERVICE_UUID
     );
 
 
-    bleServer =
-        BLEDevice::createServer();
+  BLECharacteristic* writeCharacteristic =
+    service->createCharacteristic(
 
+      WRITE_CHARACTERISTIC_UUID,
 
-    bleServer->setCallbacks(
-        new ServerCallbacks()
+      BLECharacteristic::PROPERTY_WRITE
     );
 
 
-    BLEService* service =
-        bleServer->createService(
-            SERVICE_UUID
-        );
+  writeCharacteristic->setCallbacks(
+    new WriteCallbacks()
+  );
 
 
-    // Pi -> ESP32
-    BLECharacteristic* writeCharacteristic =
-        service->createCharacteristic(
+  notifyCharacteristic =
+    service->createCharacteristic(
 
-            WRITE_CHARACTERISTIC_UUID,
+      NOTIFY_CHARACTERISTIC_UUID,
 
-            BLECharacteristic::PROPERTY_WRITE
-        );
-
-
-    writeCharacteristic->setCallbacks(
-        new WriteCallbacks()
+      BLECharacteristic::PROPERTY_NOTIFY
     );
 
 
-    // ESP32 -> Pi ACK
-    notifyCharacteristic =
-        service->createCharacteristic(
-
-            NOTIFY_CHARACTERISTIC_UUID,
-
-            BLECharacteristic::PROPERTY_NOTIFY
-        );
+  notifyCharacteristic->addDescriptor(
+    new BLE2902()
+  );
 
 
-    notifyCharacteristic->addDescriptor(
-        new BLE2902()
-    );
+  service->start();
 
 
-    service->start();
+  BLEAdvertising* advertising =
+    BLEDevice::getAdvertising();
 
 
-    BLEAdvertising* advertising =
-        BLEDevice::getAdvertising();
+  advertising->addServiceUUID(
+    SERVICE_UUID
+  );
 
 
-    advertising->addServiceUUID(
-        SERVICE_UUID
-    );
+  advertising->setScanResponse(
+    true
+  );
 
 
-    advertising->setScanResponse(true);
-
-    advertising->start();
+  advertising->start();
 
 
-    Serial.println("[BLE] Ready");
+  Serial.println(
+    "[BLE] SenseOn_ESP32 ready"
+  );
 }
 
 
+// 새 패킷 있는지
 bool hasNewPacket() {
 
-    return newPacketAvailable;
+  return newPacketAvailable;
 }
 
 
+// 패킷 가져오기
 String getLatestPacket() {
 
-    newPacketAvailable = false;
+  newPacketAvailable =
+    false;
 
-    return latestPacket;
+  return latestPacket;
 }
 
 
-// Pi가 기다리는 ACK
+// ACK 보내기
 void sendAck() {
 
-    if (
-        !piConnected ||
-        notifyCharacteristic == nullptr
-    ) {
-        return;
-    }
+  if (
+    !piConnected ||
+    notifyCharacteristic == nullptr
+  ) {
+
+    return;
+  }
 
 
-    notifyCharacteristic->setValue(
-        "ACK"
-    );
+  notifyCharacteristic->setValue(
+    "ACK"
+  );
 
 
-    notifyCharacteristic->notify();
+  notifyCharacteristic->notify();
 
 
-    Serial.println("[ACK TX] ACK");
+  Serial.println(
+    "[BLE TX] ACK"
+  );
+}
+
+
+// 연결 상태
+bool isPiConnected() {
+
+  return piConnected;
+}
+
+
+// 마지막 데이터 수신 시간
+unsigned long getLastPacketTime() {
+
+  return lastPacketTime;
 }
 
 #endif
