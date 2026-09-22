@@ -1,3 +1,6 @@
+// ==============================
+// motor_control.h
+// ==============================
 #ifndef MOTOR_CONTROL_H
 #define MOTOR_CONTROL_H
 
@@ -7,92 +10,172 @@
 #include "protocol.h"
 
 
-void stopMotors() {
-
-    analogWrite(LEFT_IN1, 0);
-    analogWrite(LEFT_IN2, 0);
-
-    analogWrite(RIGHT_IN1, 0);
-    analogWrite(RIGHT_IN2, 0);
-}
+bool motorActive = false;
 
 
+// 모터 초기화
 void setupMotor() {
 
-    pinMode(LEFT_IN1, OUTPUT);
-    pinMode(LEFT_IN2, OUTPUT);
+  pinMode(RIGHT_IN1, OUTPUT);
+  pinMode(RIGHT_IN2, OUTPUT);
 
-    pinMode(RIGHT_IN1, OUTPUT);
-    pinMode(RIGHT_IN2, OUTPUT);
+  pinMode(LEFT_IN1, OUTPUT);
+  pinMode(LEFT_IN2, OUTPUT);
 
-    stopMotors();
+  analogWrite(RIGHT_IN1, 0);
+  analogWrite(RIGHT_IN2, 0);
+
+  analogWrite(LEFT_IN1, 0);
+  analogWrite(LEFT_IN2, 0);
+
+  motorActive = false;
+
+  Serial.println("[MOTOR] Ready");
 }
 
 
-// 위험 정보에 따라 모터 제어
-void controlMotor(const HazardData& hazard) {
+// 모든 모터 OFF
+void stopMotors() {
 
-    // 이전 상태 초기화
-    stopMotors();
+  analogWrite(RIGHT_IN1, 0);
+  analogWrite(RIGHT_IN2, 0);
 
+  analogWrite(LEFT_IN1, 0);
+  analogWrite(LEFT_IN2, 0);
 
-    // SAFE면 진동 없음
-    if (hazard.risk == "SAFE") {
-
-        Serial.println("[MOTOR] SAFE -> OFF");
-
-        return;
-    }
+  motorActive = false;
+}
 
 
-    int pwmValue;
+// 모터 작동 여부
+bool isMotorActive() {
+
+  return motorActive;
+}
 
 
-    if (hazard.risk == "CAUTION") {
+// 실제 모터 제어
+void controlMotor(
+  const HazardData& hazard
+) {
 
-        pwmValue = PWM_CAUTION;
-
-    } else {
-
-        pwmValue = PWM_DANGER;
-    }
+  stopMotors();
 
 
-    // 왼쪽 위험
-    if (hazard.direction == "LEFT") {
+  // SAFE면 모터 끄기
+  if (hazard.risk == "SAFE") {
 
-        analogWrite(LEFT_IN1, pwmValue);
-        analogWrite(LEFT_IN2, 0);
+    Serial.println(
+      "[MOTOR] SAFE -> OFF"
+    );
 
-        Serial.println("[MOTOR] LEFT");
-    }
-
-
-    // 오른쪽 위험
-    else if (hazard.direction == "RIGHT") {
-
-        analogWrite(RIGHT_IN1, pwmValue);
-        analogWrite(RIGHT_IN2, 0);
-
-        Serial.println("[MOTOR] RIGHT");
-    }
+    return;
+  }
 
 
-    // 중앙 위험
-    else if (hazard.direction == "CENTER") {
-
-        analogWrite(LEFT_IN1, pwmValue);
-        analogWrite(LEFT_IN2, 0);
-
-        analogWrite(RIGHT_IN1, pwmValue);
-        analogWrite(RIGHT_IN2, 0);
-
-        Serial.println("[MOTOR] CENTER -> BOTH");
-    }
+  int power = 0;
 
 
-    Serial.print("[MOTOR] PWM = ");
-    Serial.println(pwmValue);
+  if (hazard.risk == "CAUTION") {
+
+    power = PWM_CAUTION;
+
+  } else if (hazard.risk == "DANGER") {
+
+    power = PWM_DANGER;
+  }
+
+
+  // =========================
+  // RIGHT
+  // A채널
+  // =========================
+
+  if (hazard.direction == "RIGHT") {
+
+    analogWrite(
+      RIGHT_IN1,
+      power
+    );
+
+    analogWrite(
+      RIGHT_IN2,
+      0
+    );
+
+
+    Serial.print(
+      "[MOTOR] RIGHT(A) PWM="
+    );
+
+    Serial.println(power);
+  }
+
+
+  // =========================
+  // LEFT
+  // B채널
+  // =========================
+
+  else if (hazard.direction == "LEFT") {
+
+    analogWrite(
+      LEFT_IN1,
+      power
+    );
+
+    analogWrite(
+      LEFT_IN2,
+      0
+    );
+
+
+    Serial.print(
+      "[MOTOR] LEFT(B) PWM="
+    );
+
+    Serial.println(power);
+  }
+
+
+  // =========================
+  // CENTER
+  // A + B 둘 다
+  // =========================
+
+  else if (hazard.direction == "CENTER") {
+
+    analogWrite(
+      RIGHT_IN1,
+      power
+    );
+
+    analogWrite(
+      RIGHT_IN2,
+      0
+    );
+
+
+    analogWrite(
+      LEFT_IN1,
+      power
+    );
+
+    analogWrite(
+      LEFT_IN2,
+      0
+    );
+
+
+    Serial.print(
+      "[MOTOR] CENTER(A+B) PWM="
+    );
+
+    Serial.println(power);
+  }
+
+
+  motorActive = true;
 }
 
 #endif
