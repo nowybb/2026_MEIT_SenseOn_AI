@@ -13,14 +13,20 @@ from protocol import encode_hazard
 from ble_sender import BLESender
 from latency import now_ms, calc_latency_ms
 from logger import save_log
-from senseon_pipeline import FrameAnalyzer
 from stream_server import update_frame, run_stream_server
 import threading
+from pathlib import Path
+import sys
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
+sys.path.append(str(ROOT_DIR))
+
+from senseon_pipeline import FrameAnalyzer
 
 async def main():
     sender = BLESender()
-    analyzer = FrameAnalyzer() # ()안에 모델 경로 작성해야 함.
+    MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
+    analyzer = FrameAnalyzer(str(MODEL_PATH))
     camera = Camera()
 
     threading.Thread(
