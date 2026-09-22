@@ -18,7 +18,7 @@ from senseon_pipeline import FrameAnalyzer
 
 async def main():
     sender = BLESender()
-    analyzer = FrameAnalyzer()
+    analyzer = FrameAnalyzer() # ()안에 모델 경로 작성해야 함.
     camera = Camera()
 
     try:
