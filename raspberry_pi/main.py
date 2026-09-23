@@ -1,6 +1,7 @@
 import asyncio
 import threading
 import sys
+import traceback
 from pathlib import Path
 
 from camera import Camera
@@ -31,18 +32,7 @@ async def main():
 
     try:
         # =================================================
-        # 1. ESP32 BLE 연결
-        # =================================================
-
-        print("[SYSTEM] ESP32 BLE 연결 시작")
-
-        await sender.connect_with_retry()
-
-        print("[SYSTEM] ESP32 BLE 연결 완료")
-
-
-        # =================================================
-        # 2. AI 모델 로드
+        # 1. AI 모델 먼저 로드
         # =================================================
 
         print("[SYSTEM] AI 모델 로드 시작")
@@ -55,13 +45,26 @@ async def main():
 
 
         # =================================================
-        # 3. 카메라 시작
+        # 2. 카메라 먼저 시작
         # =================================================
+
+        print("[SYSTEM] Camera 시작")
 
         camera = Camera()
         camera.start()
 
         print("[SYSTEM] Camera started")
+
+
+        # =================================================
+        # 3. 무거운 초기화가 끝난 뒤 BLE 연결
+        # =================================================
+
+        print("[SYSTEM] ESP32 BLE 연결 시작")
+
+        await sender.connect_with_retry()
+
+        print("[SYSTEM] ESP32 BLE 연결 완료")
 
 
         # =================================================
@@ -85,32 +88,34 @@ async def main():
         while True:
 
             # ---------------------------------------------
-            # 카메라 프레임 획득
+            # 카메라 프레임
             # ---------------------------------------------
 
             frame = camera.get_frame()
 
             if frame is None:
-                print("[CAMERA] frame is None")
                 await asyncio.sleep(0.01)
                 continue
 
-
-            # ---------------------------------------------
-            # AI 처리용 timestamp
-            # ---------------------------------------------
 
             timestamp = now_ms() / 1000.0
 
 
             # ---------------------------------------------
-            # AI 분석
+            # AI 추론
+            #
+            # 중요:
+            # analyzer.process()가 asyncio 이벤트 루프를
+            # 막지 않도록 별도 thread에서 실행
             # ---------------------------------------------
 
-            final_result, state, annotated_frame = analyzer.process(
-                frame,
-                timestamp,
-                annotate=True
+            final_result, state, annotated_frame = (
+                await asyncio.to_thread(
+                    analyzer.process,
+                    frame,
+                    timestamp,
+                    annotate=True
+                )
             )
 
 
@@ -119,7 +124,7 @@ async def main():
 
 
             # ---------------------------------------------
-            # 브라우저 스트리밍
+            # 스트리밍
             # ---------------------------------------------
 
             if annotated_frame is not None:
@@ -130,18 +135,20 @@ async def main():
 
 
             # ---------------------------------------------
-            # 아직 AI 판단 불가능
+            # AI 상태 확인
             # ---------------------------------------------
 
             if state != "READY":
                 print(f"[AI] state={state}")
 
+                # 이벤트 루프에 실행권 반환
                 await asyncio.sleep(0)
+
                 continue
 
 
             # ---------------------------------------------
-            # 최종 Hazard 결과
+            # AI 최종 결과
             # ---------------------------------------------
 
             hazard = final_result
@@ -150,7 +157,7 @@ async def main():
 
 
             # ---------------------------------------------
-            # BLE Packet 생성
+            # BLE Packet
             # ---------------------------------------------
 
             packet = encode_hazard(hazard)
@@ -159,7 +166,7 @@ async def main():
 
 
             # ---------------------------------------------
-            # 이전 ACK 초기화
+            # ACK 초기화
             # ---------------------------------------------
 
             sender.clear_ack()
@@ -168,8 +175,8 @@ async def main():
             # ---------------------------------------------
             # ESP32 전송
             #
-            # 연결이 살아 있으면 기존 연결 그대로 사용
-            # 연결이 끊겨 있으면 BLESender 내부에서 재연결
+            # 연결되어 있으면 기존 연결 사용
+            # 끊어졌으면 BLESender 내부에서 재연결
             # ---------------------------------------------
 
             send_success = await sender.send(packet)
@@ -178,11 +185,12 @@ async def main():
                 print("[BLE] 전송 실패")
 
                 await asyncio.sleep(0.01)
+
                 continue
 
 
             # ---------------------------------------------
-            # ESP32 ACK 대기
+            # ACK 대기
             # ---------------------------------------------
 
             ack_received = await sender.wait_for_ack()
@@ -191,6 +199,7 @@ async def main():
                 print("[BLE] ACK 수신 실패")
 
                 await asyncio.sleep(0.01)
+
                 continue
 
 
@@ -212,7 +221,7 @@ async def main():
 
 
             # ---------------------------------------------
-            # CSV 로그 저장
+            # CSV 저장
             # ---------------------------------------------
 
             save_log(
@@ -221,17 +230,11 @@ async def main():
             )
 
 
-            # 다른 asyncio 작업에게 실행 기회 제공
+            # asyncio 이벤트 루프에 실행권 반환
             await asyncio.sleep(0)
 
 
-    except KeyboardInterrupt:
-        print()
-        print("[SYSTEM] 사용자 종료 요청")
-
-
     except asyncio.CancelledError:
-        print()
         print("[SYSTEM] Task cancelled")
         raise
 
@@ -243,10 +246,12 @@ async def main():
             f"{type(e).__name__}: {repr(e)}"
         )
 
+        traceback.print_exc()
+
 
     finally:
         # =================================================
-        # 프로그램이 실제로 종료될 때만 실행
+        # 프로그램이 실제로 종료될 때만 BLE 연결 종료
         # =================================================
 
         print("[SYSTEM] 종료 처리 시작")
@@ -256,6 +261,7 @@ async def main():
         if camera is not None:
             try:
                 camera.stop()
+
                 print("[SYSTEM] Camera stopped")
 
             except Exception as e:
@@ -265,7 +271,7 @@ async def main():
                 )
 
 
-        # BLE 연결 종료
+        # BLE 종료
         try:
             await sender.disconnect()
 
@@ -280,4 +286,9 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+
+    except KeyboardInterrupt:
+        print()
+        print("[SYSTEM] 사용자 종료")
