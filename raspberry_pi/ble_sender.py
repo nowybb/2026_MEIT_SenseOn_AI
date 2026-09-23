@@ -17,14 +17,8 @@ from config import (
 # =========================================================
 
 SCAN_TIMEOUT = 3.0
-
-# 장치 발견 직후 BlueZ/BLE 상태가 정리될 시간을 조금 줌
 DEVICE_SETTLE_DELAY = 0.5
-
-# 정상 연결은 이전 테스트에서 약 2~3초였으므로
-# 실패 시 너무 오래 기다리지 않도록 제한
 CONNECT_TIMEOUT = 6.0
-
 NOTIFY_TIMEOUT = 5.0
 
 
@@ -40,8 +34,6 @@ class BLESender:
         self.notify_uuid = NOTIFY_CHARACTERISTIC_UUID
 
         self.client = None
-
-        # ESP32 ACK 수신 여부
         self.ack_event = asyncio.Event()
 
 
@@ -65,7 +57,7 @@ class BLESender:
         try:
             device = await BleakScanner.find_device_by_address(
                 self.device_address,
-                timeout=3.0
+                timeout=SCAN_TIMEOUT
             )
 
         except Exception as e:
@@ -101,6 +93,11 @@ class BLESender:
     async def connect(self):
         log("[BLE] ===== 연결 절차 시작 =====")
 
+        # 혹시 이전 실패 client가 남아 있으면 먼저 제거
+        if self.client is not None:
+            log("[BLE] 이전 client 객체 발견 -> 정리")
+            await self._safe_disconnect()
+
         device = await self.find_device()
 
         if device is None:
@@ -109,7 +106,7 @@ class BLESender:
 
 
         # -------------------------------------------------
-        # 장치 발견 직후 0.5초 안정화
+        # 장치 발견 후 잠깐 안정화
         # -------------------------------------------------
 
         log(
@@ -121,13 +118,16 @@ class BLESender:
 
 
         # -------------------------------------------------
-        # Bleak Client 생성
+        # 매 연결 시도마다 새 BleakClient 생성
         # -------------------------------------------------
+
+        log("[BLE] 새 BleakClient 객체 생성")
 
         self.client = BleakClient(
             device,
             disconnected_callback=self._disconnected_callback
         )
+
 
         try:
             # =============================================
@@ -163,6 +163,8 @@ class BLESender:
                     "[BLE] connect() 반환 후 "
                     "is_connected=False"
                 )
+
+                await self._safe_disconnect()
                 return False
 
 
@@ -179,8 +181,6 @@ class BLESender:
                 f"{len(services.services)}"
             )
 
-
-            # 서비스 / characteristic 목록 출력
             for service in services:
                 log(
                     f"[BLE] SERVICE: {service.uuid}"
@@ -211,6 +211,7 @@ class BLESender:
                     "[BLE] ERROR: "
                     "Notify characteristic 찾지 못함"
                 )
+
                 await self._safe_disconnect()
                 return False
 
@@ -243,6 +244,7 @@ class BLESender:
                     "[BLE] ERROR: "
                     "Write characteristic 찾지 못함"
                 )
+
                 await self._safe_disconnect()
                 return False
 
@@ -320,10 +322,13 @@ class BLESender:
             )
 
             if self.client is not None:
-                log(
-                    f"[BLE] 예외 시 is_connected = "
-                    f"{self.client.is_connected}"
-                )
+                try:
+                    log(
+                        f"[BLE] 예외 시 is_connected = "
+                        f"{self.client.is_connected}"
+                    )
+                except Exception:
+                    pass
 
             await self._safe_disconnect()
 
@@ -331,26 +336,40 @@ class BLESender:
 
 
     # =====================================================
-    # 안전한 연결 해제
+    # 실패한 client 완전 정리
     # =====================================================
 
     async def _safe_disconnect(self):
-        if self.client is None:
+        client = self.client
+
+        if client is None:
             return
 
         try:
-            if self.client.is_connected:
+            if client.is_connected:
                 log("[BLE] 기존 연결 정리 시작")
 
-                await self.client.disconnect()
+                try:
+                    await client.disconnect()
+                    log("[BLE] 기존 연결 정리 완료")
 
-                log("[BLE] 기존 연결 정리 완료")
+                except Exception as e:
+                    log(
+                        f"[BLE] disconnect 실패: "
+                        f"{type(e).__name__}: {repr(e)}"
+                    )
 
         except Exception as e:
             log(
-                f"[BLE] 연결 정리 실패: "
+                f"[BLE] client 상태 확인 실패: "
                 f"{type(e).__name__}: {repr(e)}"
             )
+
+        finally:
+            # 핵심:
+            # 이전 실패한 BleakClient 객체 참조를 완전히 제거
+            self.client = None
+            log("[BLE] 기존 client 객체 제거 완료")
 
 
     # =====================================================
@@ -431,7 +450,7 @@ class BLESender:
             )
 
 
-        # 연결이 끊어졌으면 재연결
+        # 연결이 끊겼으면 자동 재연결
         if (
             self.client is None
             or not self.client.is_connected
@@ -459,9 +478,6 @@ class BLESender:
             await self.client.write_gatt_char(
                 self.write_uuid,
                 packet.encode("utf-8"),
-
-                # ESP32 characteristic가 PROPERTY_WRITE이므로
-                # Write Request 사용
                 response=True
             )
 
@@ -488,11 +504,17 @@ class BLESender:
             )
 
             if self.client is not None:
-                log(
-                    f"[BLE] 전송 실패 후 "
-                    f"is_connected="
-                    f"{self.client.is_connected}"
-                )
+                try:
+                    log(
+                        f"[BLE] 전송 실패 후 "
+                        f"is_connected="
+                        f"{self.client.is_connected}"
+                    )
+                except Exception:
+                    pass
+
+            # 다음 send()에서 완전히 새 client로 재연결하도록 정리
+            await self._safe_disconnect()
 
             return False
 
@@ -538,58 +560,55 @@ class BLESender:
 
 
     # =====================================================
-    # 프로그램 종료 시 연결 해제
+    # 프로그램 종료
     # =====================================================
 
     async def disconnect(self):
         if self.client is None:
-            log(
-                "[BLE] disconnect: client 없음"
-            )
+            log("[BLE] disconnect: client 없음")
             return
 
+        client = self.client
 
-        log(
-            f"[BLE] disconnect 시작 "
-            f"(is_connected="
-            f"{self.client.is_connected})"
-        )
-
-
-        if not self.client.is_connected:
-            log(
-                "[BLE] 이미 연결 해제 상태"
-            )
-            return
-
-
-        # Notify 종료
         try:
-            log("[BLE] stop_notify 시작")
-
-            await self.client.stop_notify(
-                self.notify_uuid
-            )
-
-            log("[BLE] stop_notify 완료")
-
-        except Exception as e:
             log(
-                f"[BLE] stop_notify 실패: "
-                f"{type(e).__name__}: {repr(e)}"
+                f"[BLE] disconnect 시작 "
+                f"(is_connected={client.is_connected})"
             )
 
+            if client.is_connected:
 
-        # GATT 연결 해제
-        try:
-            log("[BLE] disconnect() 호출")
+                # Notify 종료
+                try:
+                    log("[BLE] stop_notify 시작")
 
-            await self.client.disconnect()
+                    await client.stop_notify(
+                        self.notify_uuid
+                    )
 
-            log("[BLE] 연결 종료 완료")
+                    log("[BLE] stop_notify 완료")
 
-        except Exception as e:
-            log(
-                f"[BLE] 연결 종료 중 오류: "
-                f"{type(e).__name__}: {repr(e)}"
-            )
+                except Exception as e:
+                    log(
+                        f"[BLE] stop_notify 실패: "
+                        f"{type(e).__name__}: {repr(e)}"
+                    )
+
+
+                # GATT 연결 종료
+                try:
+                    log("[BLE] disconnect() 호출")
+
+                    await client.disconnect()
+
+                    log("[BLE] 연결 종료 완료")
+
+                except Exception as e:
+                    log(
+                        f"[BLE] 연결 종료 중 오류: "
+                        f"{type(e).__name__}: {repr(e)}"
+                    )
+
+        finally:
+            self.client = None
+            log("[BLE] client 객체 제거 완료")
