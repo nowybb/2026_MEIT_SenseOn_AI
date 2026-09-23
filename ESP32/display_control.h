@@ -1,6 +1,3 @@
-// ==============================
-// display_control.h
-// ==============================
 #ifndef DISPLAY_CONTROL_H
 #define DISPLAY_CONTROL_H
 
@@ -22,7 +19,10 @@ Adafruit_SSD1306 display(
 );
 
 
-// 가운데 정렬
+// ==============================
+// 글자 가운데 정렬
+// ==============================
+
 void drawCenteredText(
   String text,
   int y,
@@ -37,7 +37,6 @@ void drawCenteredText(
   uint16_t w;
   uint16_t h;
 
-
   display.getTextBounds(
     text,
     0,
@@ -48,10 +47,8 @@ void drawCenteredText(
     &h
   );
 
-
   int x =
     (SCREEN_WIDTH - w) / 2;
-
 
   display.setCursor(
     x,
@@ -62,7 +59,10 @@ void drawCenteredText(
 }
 
 
+// ==============================
 // OLED 초기화
+// ==============================
+
 void setupDisplay() {
 
   Wire.begin(
@@ -97,7 +97,7 @@ void setupDisplay() {
 
   drawCenteredText(
     "SenseOn",
-    10,
+    12,
     2
   );
 
@@ -118,7 +118,10 @@ void setupDisplay() {
 }
 
 
-// 위험 정보 표시
+// ==============================
+// 위험 정보 OLED 표시
+// ==============================
+
 void showHazard(
   const HazardData& hazard
 ) {
@@ -130,18 +133,18 @@ void showHazard(
   );
 
 
-  // 객체
+  // 물체
   drawCenteredText(
     hazard.object,
     0,
-    1
+    2
   );
 
 
   // 방향
   drawCenteredText(
     hazard.direction,
-    14,
+    16,
     2
   );
 
@@ -149,32 +152,31 @@ void showHazard(
   // 위험도
   drawCenteredText(
     hazard.risk,
-    34,
+    32,
     2
   );
 
 
+  // TTC
   String ttcText;
-
 
   if (hazard.ttcValid) {
 
     ttcText =
-      "TTC: " +
-      String(hazard.ttc, 1) +
-      "s";
+      "TTC:" +
+      String(hazard.ttc, 1);
 
   } else {
 
     ttcText =
-      "TTC: None";
+      "TTC:None";
   }
 
 
   drawCenteredText(
     ttcText,
-    55,
-    1
+    48,
+    2
   );
 
 
