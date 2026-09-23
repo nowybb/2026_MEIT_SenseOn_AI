@@ -30,11 +30,14 @@ class BLESender:
     async def find_device(self):
         log(f"[BLE] {self.device_name} 검색 중...")
 
-        devices = await BleakScanner.discover()
+        devices = await BleakScanner.discover(timeout=10.0)
 
         for device in devices:
             if device.name == self.device_name:
-                log(f"[BLE] 장치 발견: {device.name}")
+                log(
+                    f"[BLE] 장치 발견: "
+                    f"{device.name} / {device.address}"
+                )
                 return device
 
         log("[BLE] 장치를 찾지 못했습니다.")
@@ -50,19 +53,67 @@ class BLESender:
         self.client = BleakClient(device)
 
         try:
-            await self.client.connect()
+            # 1. GATT 연결
+            log("[BLE] GATT 연결 시도...")
 
-            # ESP32 → Pi ACK 수신 시작
-            await self.client.start_notify(
-                self.notify_uuid,
-                self._notification_handler
+            await asyncio.wait_for(
+                self.client.connect(),
+                timeout=10.0
             )
 
+            log(
+                f"[BLE] GATT 연결 완료: "
+                f"{self.client.is_connected}"
+            )
+
+            # 2. Notify 등록
+            log(
+                f"[BLE] Notify 등록 시도: "
+                f"{self.notify_uuid}"
+            )
+
+            await asyncio.wait_for(
+                self.client.start_notify(
+                    self.notify_uuid,
+                    self._notification_handler
+                ),
+                timeout=10.0
+            )
+
+            log("[BLE] Notify 등록 완료")
             log("[BLE] 연결 성공")
+
             return True
 
+        except asyncio.TimeoutError:
+            log("[BLE] 연결 과정 TIMEOUT")
+
+            if (
+                self.client is not None
+                and self.client.is_connected
+            ):
+                try:
+                    await self.client.disconnect()
+                except Exception:
+                    pass
+
+            return False
+
         except Exception as e:
-            log(f"[BLE] 연결 실패: {e}")
+            log(
+                f"[BLE] 연결 실패: "
+                f"{type(e).__name__}: {repr(e)}"
+            )
+
+            if (
+                self.client is not None
+                and self.client.is_connected
+            ):
+                try:
+                    await self.client.disconnect()
+                except Exception:
+                    pass
+
             return False
 
 
@@ -71,12 +122,22 @@ class BLESender:
             if await self.connect():
                 return
 
-            log(f"[BLE] {RETRY_DELAY}초 후 재연결")
+            log(
+                f"[BLE] {RETRY_DELAY}초 후 재연결"
+            )
+
             await asyncio.sleep(RETRY_DELAY)
 
 
     def _notification_handler(self, sender, data):
-        message = data.decode("utf-8").strip()
+        try:
+            message = data.decode("utf-8").strip()
+        except Exception as e:
+            log(
+                f"[BLE] Notify decode 실패: "
+                f"{type(e).__name__}: {repr(e)}"
+            )
+            return
 
         log(f"[BLE] 수신: {message}")
 
@@ -87,10 +148,14 @@ class BLESender:
     async def send(self, packet):
         if not self.write_uuid:
             raise ValueError(
-                "WRITE_CHARACTERISTIC_UUID가 아직 설정되지 않았습니다."
+                "WRITE_CHARACTERISTIC_UUID가 "
+                "설정되지 않았습니다."
             )
 
-        if self.client is None or not self.client.is_connected:
+        if (
+            self.client is None
+            or not self.client.is_connected
+        ):
             log("[BLE] 연결 없음. 재연결 시도")
             await self.connect_with_retry()
 
@@ -104,12 +169,16 @@ class BLESender:
             return True
 
         except Exception as e:
-            log(f"[BLE] 전송 실패: {e}")
+            log(
+                f"[BLE] 전송 실패: "
+                f"{type(e).__name__}: {repr(e)}"
+            )
+
             return False
 
 
     def clear_ack(self):
-        # 새 패킷 보내기 전에 이전 ACK 상태 초기화
+        # 새 패킷 전송 전 이전 ACK 상태 초기화
         self.ack_event.clear()
 
 
@@ -129,7 +198,24 @@ class BLESender:
 
 
     async def disconnect(self):
-        if self.client is not None and self.client.is_connected:
-            await self.client.disconnect()
+        if (
+            self.client is not None
+            and self.client.is_connected
+        ):
+            try:
+                await self.client.stop_notify(
+                    self.notify_uuid
+                )
+            except Exception:
+                pass
+
+            try:
+                await self.client.disconnect()
+            except Exception as e:
+                log(
+                    f"[BLE] 연결 종료 중 오류: "
+                    f"{type(e).__name__}: {repr(e)}"
+                )
+                return
 
             log("[BLE] 연결 종료")
