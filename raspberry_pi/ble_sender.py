@@ -5,7 +5,7 @@ from datetime import datetime
 from bleak import BleakClient, BleakScanner
 
 from config import (
-    DEVICE_NAME,
+    DEVICE_ADDRESS,
     WRITE_CHARACTERISTIC_UUID,
     NOTIFY_CHARACTERISTIC_UUID,
     RETRY_DELAY
@@ -35,7 +35,7 @@ def log(message):
 
 class BLESender:
     def __init__(self):
-        self.device_name = DEVICE_NAME
+        self.device_address = DEVICE_ADDRESS
         self.write_uuid = WRITE_CHARACTERISTIC_UUID
         self.notify_uuid = NOTIFY_CHARACTERISTIC_UUID
 
@@ -58,15 +58,14 @@ class BLESender:
     # =====================================================
 
     async def find_device(self):
-        log(f"[BLE] {self.device_name} 검색 시작")
+        log(f"[BLE] ESP32 검색 시작: {self.device_address}")
 
         start = time.perf_counter()
 
         try:
-            # discover()와 달리 대상 장치를 발견하는 즉시 반환
-            device = await BleakScanner.find_device_by_name(
-                self.device_name,
-                timeout=SCAN_TIMEOUT
+            device = await BleakScanner.find_device_by_address(
+                self.device_address,
+                timeout=3.0
             )
 
         except Exception as e:
@@ -80,17 +79,17 @@ class BLESender:
 
         if device is None:
             log(
-                f"[BLE] 대상 장치를 찾지 못했습니다. "
+                f"[BLE] ESP32를 찾지 못했습니다. "
                 f"({elapsed:.3f}s)"
             )
             return None
 
         log(
-            f"[BLE] 대상 장치 발견 "
+            f"[BLE] ESP32 발견 "
             f"({elapsed:.3f}s)"
         )
-        log(f"[BLE] name    : {device.name}")
         log(f"[BLE] address : {device.address}")
+        log(f"[BLE] name    : {device.name}")
 
         return device
 
