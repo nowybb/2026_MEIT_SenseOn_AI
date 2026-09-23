@@ -1,12 +1,7 @@
-# 1. Raspberry Pi 카메라 입력
-# 2. AI 코드 통합
-# 3. Raspberry Pi -> ESP32 BLE 통신
-# 4. 통신 안정성 처리
-# 5. End-to-End Latency 측정
-# 6. 최종 통합 실행
-# 통합 후 camera.py 호출
-
 import asyncio
+import threading
+import sys
+from pathlib import Path
 
 from camera import Camera
 from protocol import encode_hazard
@@ -14,84 +9,130 @@ from ble_sender import BLESender
 from latency import now_ms, calc_latency_ms
 from logger import save_log
 from stream_server import update_frame, run_stream_server
-import threading
-from pathlib import Path
-import sys
+
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-sys.path.append(str(ROOT_DIR))
+sys.path.insert(0, str(ROOT_DIR))
 
 from senseon_pipeline import FrameAnalyzer
 
+
+MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
+
+
 async def main():
     sender = BLESender()
-    MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
-    analyzer = FrameAnalyzer(str(MODEL_PATH))
-    camera = Camera()
 
-    threading.Thread(
-        target=run_stream_server,
-        daemon=True
-        ).start()
+    camera = None
 
     try:
-        # ESP32 연결
+        # =========================
+        # 1. BLE 먼저 연결
+        # =========================
+        print("[SYSTEM] ESP32 BLE 연결 시작")
+
         await sender.connect_with_retry()
 
-        # 카메라 시작
+        print("[SYSTEM] ESP32 BLE 연결 완료")
+
+
+        # =========================
+        # 2. AI 모델 로드
+        # =========================
+        print("[SYSTEM] AI 모델 로드 시작")
+
+        analyzer = FrameAnalyzer(str(MODEL_PATH))
+
+        print("[SYSTEM] AI 모델 로드 완료")
+
+
+        # =========================
+        # 3. 카메라 생성 및 시작
+        # =========================
+        camera = Camera()
         camera.start()
 
+        print("[SYSTEM] Camera started")
+
+
+        # =========================
+        # 4. 실시간 스트리밍 시작
+        # =========================
+        threading.Thread(
+            target=run_stream_server,
+            daemon=True
+        ).start()
+
+        print("[SYSTEM] Live stream started")
+
+
+        # =========================
+        # 5. 전체 통합 루프
+        # =========================
         while True:
-            # 1. 프레임 입력
+
+            # 카메라 프레임
             frame = camera.get_frame()
 
-            # 2. AI 처리
             timestamp = now_ms() / 1000.0
 
+
+            # AI 처리
             final_result, state, annotated_frame = analyzer.process(
                 frame,
                 timestamp,
                 annotate=True
-                )
+            )
 
-            # 5. AI 판단 완료 시점
+            # AI 판단 완료 시점
             ai_result_time = now_ms()
 
-            # 브라우저 화면 갱신
-            update_frame(annotated_frame)
 
-            # 아직 AI가 판단 가능한 상태가 아니면 다음 프레임
+            # 브라우저 화면
+            if annotated_frame is not None:
+                update_frame(annotated_frame)
+            else:
+                update_frame(frame)
+
+
+            # 아직 판단 불가능
             if state != "READY":
-                print(f"AI 상태: {state}")
+                print(f"[AI] state={state}")
                 continue
+
 
             hazard = final_result
 
-            print("AI 결과:", hazard)
+            print("[AI] result:", hazard)
 
-            # 3. BLE 패킷 생성
+
+            # BLE 패킷
             packet = encode_hazard(hazard)
 
-            print("전송 패킷:", packet)
+            print("[BLE] packet:", packet)
 
-            # 4. 이전 ACK 초기화
+
+            # 이전 ACK 초기화
             sender.clear_ack()
 
-            # 5. BLE 전송
+
+            # ESP32 전송
             send_success = await sender.send(packet)
 
             if not send_success:
-                print("BLE 전송 실패")
+                print("[BLE] 전송 실패")
                 continue
 
-            # 6. ACK 대기
+
+            # ACK 대기
             ack_received = await sender.wait_for_ack()
 
             if not ack_received:
-                print("ACK 수신 실패")
+                print("[BLE] ACK 수신 실패")
                 continue
 
-            # 7. E2E latency 계산
+
+            # E2E Latency
             ack_time = now_ms()
 
             e2e_latency = calc_latency_ms(
@@ -100,19 +141,25 @@ async def main():
             )
 
             print(
-                f"End-to-End Latency: "
+                f"[LATENCY] End-to-End: "
                 f"{e2e_latency:.3f} ms"
             )
 
-            # 8. 로그 저장
+
+            # CSV
             save_log(
                 hazard,
                 e2e_latency_ms=e2e_latency
             )
 
+
     finally:
-        camera.stop()
+        if camera is not None:
+            camera.stop()
+
         await sender.disconnect()
+
+        print("[SYSTEM] 종료 완료")
 
 
 if __name__ == "__main__":
