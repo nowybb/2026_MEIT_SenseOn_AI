@@ -1,7 +1,3 @@
-// ==============================
-// SenseOn_ESP32.ino
-// ==============================
-
 #include "config.h"
 
 #include "protocol.h"
@@ -12,6 +8,10 @@
 
 #include "ble_handler.h"
 
+
+// =====================================================
+// SETUP
+// =====================================================
 
 void setup() {
 
@@ -34,10 +34,15 @@ void setup() {
   );
 
 
+  // 모터 초기화
   setupMotor();
 
+
+  // OLED 초기화
   setupDisplay();
 
+
+  // BLE 초기화
   setupBLE();
 
 
@@ -47,9 +52,17 @@ void setup() {
 }
 
 
+// =====================================================
+// LOOP
+// =====================================================
+
 void loop() {
 
-  // BLE 연결 끊김 안전 처리
+  // -------------------------------------
+  // BLE 연결이 끊어졌으면
+  // 안전을 위해 모터 OFF
+  // -------------------------------------
+
   if (
     !isPiConnected() &&
     isMotorActive()
@@ -64,23 +77,11 @@ void loop() {
   }
 
 
-  // 데이터가 1초 이상 안 오면 모터 OFF
-  if (
-    isMotorActive() &&
-    millis() - getLastPacketTime()
-      > DATA_TIMEOUT_MS
-  ) {
+  // -------------------------------------
+  // 새 BLE 데이터가 없으면
+  // 현재 모터 상태 그대로 유지
+  // -------------------------------------
 
-    stopMotors();
-
-
-    Serial.println(
-      "[SAFETY] Data timeout -> OFF"
-    );
-  }
-
-
-  // 새 데이터 없으면 넘어감
   if (!hasNewPacket()) {
 
     delay(5);
@@ -89,9 +90,18 @@ void loop() {
   }
 
 
+  // -------------------------------------
+  // 새 패킷 가져오기
+  // -------------------------------------
+
   String packet =
     getLatestPacket();
 
+
+  Serial.println();
+  Serial.println(
+    "=============================="
+  );
 
   Serial.print(
     "[PACKET] "
@@ -102,19 +112,32 @@ void loop() {
   );
 
 
+  // -------------------------------------
+  // 패킷 파싱
+  // -------------------------------------
+
   HazardData hazard =
     parsePacket(packet);
 
 
+  // 잘못된 패킷
   if (!hazard.valid) {
 
     Serial.println(
       "[ERROR] Invalid packet"
     );
 
+    Serial.println(
+      "=============================="
+    );
+
     return;
   }
 
+
+  // -------------------------------------
+  // 받은 정보 출력
+  // -------------------------------------
 
   Serial.println(
     "----- HAZARD -----"
@@ -167,18 +190,54 @@ void loop() {
   }
 
 
-  // OLED 표시
+  // -------------------------------------
+  // OLED 업데이트
+  // -------------------------------------
+
+  Serial.println(
+    "[SYSTEM] OLED update"
+  );
+
   showHazard(
     hazard
   );
 
 
-  // 모터 작동
+  // -------------------------------------
+  // 모터 제어
+  //
+  // SAFE
+  // -> 모터 OFF
+  //
+  // CAUTION / DANGER
+  // -> 다음 SAFE가 올 때까지 계속 유지
+  // -------------------------------------
+
+  Serial.println(
+    "[SYSTEM] Motor control"
+  );
+
   controlMotor(
     hazard
   );
 
 
-  // Pi에 ACK
+  // -------------------------------------
+  // 처리 완료 ACK
+  // -------------------------------------
+
+  Serial.println(
+    "[SYSTEM] Sending ACK"
+  );
+
   sendAck();
+
+
+  Serial.println(
+    "[SYSTEM] Packet processing complete"
+  );
+
+  Serial.println(
+    "=============================="
+  );
 }
