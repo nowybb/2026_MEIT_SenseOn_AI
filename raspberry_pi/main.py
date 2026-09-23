@@ -25,23 +25,10 @@ from senseon_pipeline import FrameAnalyzer
 MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
 
 
-# =========================================================
-# 경고 최소 유지시간
-#
-# CAUTION / DANGER 발생 후 이 시간 동안은
-# SAFE 패킷을 ESP32로 보내지 않음
-# =========================================================
-
-WARNING_HOLD_MS = 500
-
-
 async def main():
     sender = BLESender()
 
     camera = None
-
-    # 마지막으로 CAUTION / DANGER가 발생한 시간
-    last_warning_time = None
 
     try:
         # =================================================
@@ -70,7 +57,7 @@ async def main():
 
 
         # =================================================
-        # 3. 실시간 스트리밍 서버 시작
+        # 3. 실시간 스트리밍 서버 먼저 시작
         # =================================================
 
         stream_thread = threading.Thread(
@@ -84,7 +71,10 @@ async def main():
 
 
         # =================================================
-        # 4. 초기 스트림 프레임
+        # 4. 스트림 화면 갱신용 프레임 먼저 생성
+        #
+        # BLE 연결을 기다리는 동안에도
+        # 브라우저에서 카메라 화면을 볼 수 있도록 함
         # =================================================
 
         print("[SYSTEM] 초기 카메라 화면 준비")
@@ -130,6 +120,9 @@ async def main():
 
             # ---------------------------------------------
             # AI 추론
+            #
+            # AI 연산이 asyncio 이벤트 루프를
+            # 막지 않도록 별도 thread에서 실행
             # ---------------------------------------------
 
             final_result, state, annotated_frame = (
@@ -178,59 +171,6 @@ async def main():
             print("[AI] result:", hazard)
 
 
-            # =================================================
-            # 경고 최소 유지시간 처리
-            # =================================================
-
-            current_time = now_ms()
-
-
-            # hazard가 None이면 SAFE
-            if hazard is None:
-                risk = "SAFE"
-
-            else:
-                risk = hazard.get("risk", "SAFE")
-
-
-            # ---------------------------------------------
-            # CAUTION / DANGER
-            #
-            # 즉시 전송하고 마지막 경고 시간 갱신
-            # ---------------------------------------------
-
-            if risk in ("CAUTION", "DANGER"):
-                last_warning_time = current_time
-
-
-            # ---------------------------------------------
-            # SAFE
-            #
-            # 마지막 경고 이후 500ms가 지나지 않았다면
-            # SAFE 패킷을 보내지 않음
-            # → 모터가 바로 꺼지는 것 방지
-            # ---------------------------------------------
-
-            elif risk == "SAFE":
-
-                if last_warning_time is not None:
-
-                    elapsed_from_warning = (
-                        current_time - last_warning_time
-                    )
-
-                    if elapsed_from_warning < WARNING_HOLD_MS:
-                        print(
-                            f"[WARNING HOLD] SAFE 전송 보류 "
-                            f"({elapsed_from_warning:.0f}"
-                            f"/{WARNING_HOLD_MS} ms)"
-                        )
-
-                        await asyncio.sleep(0)
-
-                        continue
-
-
             # ---------------------------------------------
             # BLE Packet 생성
             # ---------------------------------------------
@@ -250,8 +190,8 @@ async def main():
             # ---------------------------------------------
             # ESP32 전송
             #
-            # 연결 유지 중이면 기존 연결 사용
-            # 연결이 끊겼으면 BLESender 내부에서 재연결
+            # 연결이 유지되고 있으면 그대로 사용
+            # 연결이 끊어졌으면 BLESender 내부에서 재연결
             # ---------------------------------------------
 
             send_success = await sender.send(packet)
@@ -325,7 +265,7 @@ async def main():
 
     finally:
         # =================================================
-        # 프로그램 종료 시 정리
+        # 프로그램 종료 시에만 정리
         # =================================================
 
         print("[SYSTEM] 종료 처리 시작")
