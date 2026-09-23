@@ -1,6 +1,7 @@
 from flask import Flask, Response
 import cv2
 import threading
+import time
 
 app = Flask(__name__)
 
@@ -19,21 +20,24 @@ def generate_frames():
     while True:
         with frame_lock:
             if latest_frame is None:
-                continue
+                frame = None
+            else:
+                frame = latest_frame.copy()
 
-            frame = latest_frame.copy()
+        if frame is None:
+            time.sleep(0.01)
+            continue
 
         success, buffer = cv2.imencode(".jpg", frame)
 
         if not success:
+            time.sleep(0.01)
             continue
-
-        frame_bytes = buffer.tobytes()
 
         yield (
             b"--frame\r\n"
             b"Content-Type: image/jpeg\r\n\r\n"
-            + frame_bytes
+            + buffer.tobytes()
             + b"\r\n"
         )
 
@@ -41,14 +45,18 @@ def generate_frames():
 @app.route("/")
 def index():
     return """
+    <!DOCTYPE html>
     <html>
-        <head>
-            <title>SenseOn Camera</title>
-        </head>
-        <body>
-            <h2>SenseOn Live View</h2>
-            <img src="/video" width="640">
-        </body>
+    <head>
+        <meta charset="UTF-8">
+        <title>SenseOn Live Camera</title>
+    </head>
+    <body>
+        <h1>SenseOn AI Live Feed</h1>
+
+        <img src="/video" width="640">
+
+    </body>
     </html>
     """
 
@@ -57,7 +65,7 @@ def index():
 def video():
     return Response(
         generate_frames(),
-        mimetype="multipart/x-mixed-replace; boundary=frame",
+        mimetype="multipart/x-mixed-replace; boundary=frame"
     )
 
 
@@ -67,5 +75,5 @@ def run_stream_server():
         port=5000,
         debug=False,
         threaded=True,
-        use_reloader=False,
+        use_reloader=False
     )
