@@ -7,7 +7,6 @@
 
 #define DEVICE_NAME "SenseOn_ESP32"
 
-// BLE Service
 #define SERVICE_UUID \
 "9a1b0000-1111-2222-3333-444455556666"
 
@@ -48,7 +47,7 @@
 
 
 // =====================================================
-// Motor PWM
+// 진동 세기
 // =====================================================
 
 #define PWM_CAUTION 60
@@ -56,9 +55,14 @@
 
 
 // =====================================================
-// Safety
+// 최소 진동 유지시간
 // =====================================================
 
-#define DATA_TIMEOUT_MS 1000
+// CAUTION 최소 500ms
+#define CAUTION_HOLD_MS 500
+
+// DANGER 최소 800ms
+#define DANGER_HOLD_MS 800
+
 
 #endif
