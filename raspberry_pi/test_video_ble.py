@@ -22,7 +22,7 @@ from senseon_pipeline import FrameAnalyzer
 # =========================================================
 
 MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
-VIDEO_PATH = ROOT_DIR / "test_videos" / "danger_test_640.mp4"
+VIDEO_PATH = ROOT_DIR / "test_videos" / "Test_DANGER_640.mp4"
 
 # BLE 최대 전송 주기
 # 200ms = 최대 5Hz
