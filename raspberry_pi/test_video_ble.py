@@ -6,8 +6,14 @@ from pathlib import Path
 
 import cv2
 
+
+# =========================================================
+# 프로젝트 경로
+# =========================================================
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
+
 
 from stream_server import update_frame, run_stream_server
 from protocol import encode_hazard
@@ -22,7 +28,13 @@ from senseon_pipeline import FrameAnalyzer
 # =========================================================
 
 MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
-VIDEO_PATH = ROOT_DIR / "test_videos" / "Test_DANGER_640.mp4"
+
+VIDEO_PATH = (
+    ROOT_DIR
+    / "test_videos"
+    / "Test_DANGER_640.mp4"
+)
+
 
 # BLE 최대 전송 주기
 # 200ms = 최대 5Hz
@@ -38,8 +50,12 @@ async def send_hazard_ble(
     hazard,
     ai_result_time
 ):
+
     try:
-        packet = encode_hazard(hazard)
+
+        packet = encode_hazard(
+            hazard
+        )
 
         sender.clear_ack()
 
@@ -48,33 +64,48 @@ async def send_hazard_ble(
         )
 
         if not send_success:
-            print("[BLE] 전송 실패")
+
+            print(
+                "[BLE] 전송 실패"
+            )
+
             return
+
 
         ack_received = await sender.wait_for_ack()
 
         if not ack_received:
-            print("[BLE] ACK 수신 실패")
+
+            print(
+                "[BLE] ACK 수신 실패"
+            )
+
             return
 
+
         ack_time = now_ms()
+
 
         e2e_latency = calc_latency_ms(
             ai_result_time,
             ack_time
         )
 
+
         print(
             f"[LATENCY] "
             f"{e2e_latency:.1f} ms"
         )
+
 
         save_log(
             hazard,
             e2e_latency_ms=e2e_latency
         )
 
+
     except Exception as e:
+
         print(
             "[BLE ERROR]",
             e
@@ -94,19 +125,24 @@ async def main():
 
     last_ble_time = 0
 
+
     try:
 
         # =================================================
         # 1. AI 모델
         # =================================================
 
-        print("[SYSTEM] AI 모델 로드")
+        print(
+            "[SYSTEM] AI 모델 로드"
+        )
 
         analyzer = FrameAnalyzer(
             str(MODEL_PATH)
         )
 
-        print("[SYSTEM] AI 모델 준비 완료")
+        print(
+            "[SYSTEM] AI 모델 준비 완료"
+        )
 
 
         # =================================================
@@ -116,6 +152,7 @@ async def main():
         cap = cv2.VideoCapture(
             str(VIDEO_PATH)
         )
+
 
         if not cap.isOpened():
 
@@ -131,13 +168,16 @@ async def main():
             cv2.CAP_PROP_FPS
         )
 
+
         frame_count = int(
             cap.get(
                 cv2.CAP_PROP_FRAME_COUNT
             )
         )
 
+
         if fps <= 0:
+
             fps = 30.0
 
 
@@ -172,6 +212,7 @@ async def main():
 
         stream_thread.start()
 
+
         print(
             "[SYSTEM] Stream server started"
         )
@@ -185,7 +226,9 @@ async def main():
             "[SYSTEM] ESP32 BLE 연결"
         )
 
+
         await sender.connect_with_retry()
+
 
         print(
             "[SYSTEM] ESP32 BLE 연결 완료"
@@ -201,9 +244,18 @@ async def main():
         processed_frames = 0
         skipped_frames = 0
 
+        loop_count = 1
+
+
+        print()
+        print(
+            f"[SYSTEM] 영상 재생 시작 "
+            f"(Loop {loop_count})"
+        )
+
 
         # =================================================
-        # 6. 영상 루프
+        # 6. 영상 무한 반복 루프
         # =================================================
 
         while True:
@@ -220,10 +272,6 @@ async def main():
 
             # ---------------------------------------------
             # 현재 시간에 해당하는 목표 frame 계산
-            #
-            # 예:
-            # 2초 경과 + 30FPS
-            # -> frame 60이 최신 프레임
             # ---------------------------------------------
 
             target_frame = int(
@@ -231,14 +279,41 @@ async def main():
             )
 
 
+            # =================================================
             # 영상 끝
+            # -> 처음부터 다시 재생
+            # =================================================
+
             if target_frame >= frame_count:
 
+                print()
                 print(
-                    "[SYSTEM] 영상 재생 완료"
+                    f"[SYSTEM] Loop {loop_count} 완료"
                 )
 
-                break
+
+                loop_count += 1
+
+
+                print(
+                    f"[SYSTEM] 영상 처음부터 다시 재생 "
+                    f"(Loop {loop_count})"
+                )
+
+
+                # 영상 첫 프레임으로 이동
+                cap.set(
+                    cv2.CAP_PROP_POS_FRAMES,
+                    0
+                )
+
+
+                # 재생 기준시간 초기화
+                playback_start = time.monotonic()
+
+
+                # 다음 루프로
+                continue
 
 
             # ---------------------------------------------
@@ -265,6 +340,7 @@ async def main():
 
                 skipped_frames += skipped
 
+
                 cap.set(
                     cv2.CAP_PROP_POS_FRAMES,
                     target_frame
@@ -277,8 +353,23 @@ async def main():
 
             ret, frame = cap.read()
 
+
             if not ret:
-                break
+
+                print(
+                    "[VIDEO] 프레임 읽기 실패 "
+                    "-> 처음부터 다시 재생"
+                )
+
+
+                cap.set(
+                    cv2.CAP_PROP_POS_FRAMES,
+                    0
+                )
+
+                playback_start = time.monotonic()
+
+                continue
 
 
             processed_frames += 1
@@ -376,6 +467,7 @@ async def main():
                         )
                     )
 
+
                     last_ble_time = (
                         current_time
                     )
@@ -383,70 +475,6 @@ async def main():
 
             # event loop에 제어권 반환
             await asyncio.sleep(0)
-
-
-        # =================================================
-        # 남은 BLE task 종료 대기
-        # =================================================
-
-        if (
-            ble_task is not None
-            and not ble_task.done()
-        ):
-
-            await ble_task
-
-
-        # =================================================
-        # 결과
-        # =================================================
-
-        total_time = (
-            time.monotonic()
-            - playback_start
-        )
-
-
-        print()
-        print(
-            "================================"
-        )
-
-        print(
-            f"[RESULT] 영상 길이: "
-            f"{duration:.2f}s"
-        )
-
-        print(
-            f"[RESULT] 실제 재생시간: "
-            f"{total_time:.2f}s"
-        )
-
-        print(
-            f"[RESULT] AI 처리 프레임: "
-            f"{processed_frames}"
-        )
-
-        print(
-            f"[RESULT] Skip 프레임: "
-            f"{skipped_frames}"
-        )
-
-        if total_time > 0:
-
-            processing_fps = (
-                processed_frames
-                / total_time
-            )
-
-            print(
-                f"[RESULT] AI 처리 FPS: "
-                f"{processing_fps:.2f}"
-            )
-
-        print(
-            "================================"
-        )
 
 
     except KeyboardInterrupt:
@@ -459,15 +487,37 @@ async def main():
 
     finally:
 
+        # 실행 중인 BLE task가 있으면 잠깐 기다림
+        if (
+            ble_task is not None
+            and not ble_task.done()
+        ):
+
+            try:
+
+                await ble_task
+
+            except Exception:
+
+                pass
+
+
         if cap is not None:
+
             cap.release()
 
+
         await sender.disconnect()
+
 
         print(
             "[SYSTEM] 종료 완료"
         )
 
+
+# =========================================================
+# 실행
+# =========================================================
 
 if __name__ == "__main__":
 
