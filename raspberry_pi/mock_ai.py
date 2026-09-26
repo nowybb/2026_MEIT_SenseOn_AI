@@ -3,7 +3,7 @@
 def get_mock_hazard():
     return {
         "object": "car",
-        "direction": "CENTER",
+        "direction": "RIGHT",
         "risk": "DANGER",
         "ttc": 1.8
     }
