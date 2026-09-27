@@ -236,13 +236,14 @@ async def main():
 
 
         # =================================================
-        # 5. 재생 기준 시각
+        # 5. 재생 기준 시각 / 통계 초기화
         # =================================================
 
         playback_start = time.monotonic()
 
         processed_frames = 0
         skipped_frames = 0
+        total_ai_time = 0.0
 
         loop_count = 1
 
@@ -271,7 +272,7 @@ async def main():
 
 
             # ---------------------------------------------
-            # 현재 시간에 해당하는 목표 frame 계산
+            # 현재 시간에 해당하는 목표 frame
             # ---------------------------------------------
 
             target_frame = int(
@@ -281,16 +282,83 @@ async def main():
 
             # =================================================
             # 영상 끝
-            # -> 처음부터 다시 재생
             # =================================================
 
             if target_frame >= frame_count:
 
                 print()
                 print(
-                    f"[SYSTEM] Loop {loop_count} 완료"
+                    "========== RESULT =========="
                 )
 
+                print(
+                    f"영상 길이        : "
+                    f"{duration:.2f} s"
+                )
+
+                actual_play_time = (
+                    time.monotonic()
+                    - playback_start
+                )
+
+                print(
+                    f"실제 재생시간    : "
+                    f"{actual_play_time:.2f} s"
+                )
+
+                print(
+                    f"Processed frames : "
+                    f"{processed_frames}"
+                )
+
+                print(
+                    f"Skip frames      : "
+                    f"{skipped_frames}"
+                )
+
+                print(
+                    f"Total AI time    : "
+                    f"{total_ai_time:.2f} s"
+                )
+
+
+                if processed_frames > 0:
+
+                    avg_ai_time = (
+                        total_ai_time
+                        / processed_frames
+                    )
+
+                    avg_ai_fps = (
+                        processed_frames
+                        / total_ai_time
+                        if total_ai_time > 0
+                        else 0
+                    )
+
+
+                    print(
+                        f"Average AI time  : "
+                        f"{avg_ai_time * 1000:.1f} "
+                        f"ms/frame"
+                    )
+
+                    print(
+                        f"Average AI FPS   : "
+                        f"{avg_ai_fps:.2f}"
+                    )
+
+
+                print(
+                    "============================"
+                )
+
+                print()
+
+
+                # -----------------------------------------
+                # 다음 Loop 시작
+                # -----------------------------------------
 
                 loop_count += 1
 
@@ -301,18 +369,23 @@ async def main():
                 )
 
 
-                # 영상 첫 프레임으로 이동
+                # 영상 처음으로 이동
                 cap.set(
                     cv2.CAP_PROP_POS_FRAMES,
                     0
                 )
 
 
-                # 재생 기준시간 초기화
+                # 재생 기준 시간 초기화
                 playback_start = time.monotonic()
 
 
-                # 다음 루프로
+                # 루프별 통계 초기화
+                processed_frames = 0
+                skipped_frames = 0
+                total_ai_time = 0.0
+
+
                 continue
 
 
@@ -361,7 +434,6 @@ async def main():
                     "-> 처음부터 다시 재생"
                 )
 
-
                 cap.set(
                     cv2.CAP_PROP_POS_FRAMES,
                     0
@@ -369,10 +441,11 @@ async def main():
 
                 playback_start = time.monotonic()
 
+                processed_frames = 0
+                skipped_frames = 0
+                total_ai_time = 0.0
+
                 continue
-
-
-            processed_frames += 1
 
 
             # ---------------------------------------------
@@ -385,8 +458,11 @@ async def main():
 
 
             # =================================================
-            # AI 분석
+            # AI 처리시간 측정
             # =================================================
+
+            ai_start = time.perf_counter()
+
 
             final_result, state, annotated_frame = (
                 await asyncio.to_thread(
@@ -396,6 +472,16 @@ async def main():
                     annotate=True
                 )
             )
+
+
+            ai_elapsed = (
+                time.perf_counter()
+                - ai_start
+            )
+
+
+            total_ai_time += ai_elapsed
+            processed_frames += 1
 
 
             ai_result_time = now_ms()
@@ -453,7 +539,7 @@ async def main():
                 >= BLE_INTERVAL_MS
             ):
 
-                # 이전 BLE 작업이 끝났을 때만
+                # 이전 BLE task가 끝났을 때만
                 if (
                     ble_task is None
                     or ble_task.done()
@@ -487,7 +573,7 @@ async def main():
 
     finally:
 
-        # 실행 중인 BLE task가 있으면 잠깐 기다림
+        # 남아있는 BLE task 종료 대기
         if (
             ble_task is not None
             and not ble_task.done()
