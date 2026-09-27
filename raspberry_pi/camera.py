@@ -11,6 +11,9 @@ class Camera:
             main={
                 "size": (width, height),
                 "format": "RGB888"
+            },
+            controls={
+                "FrameRate": 30
             }
         )
 
