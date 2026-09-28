@@ -11,4 +11,5 @@ ai1/runs/
 
 # Environment
 .env
-.DS_Store
+.DS_Storeruns/
+toy_car_dataset/

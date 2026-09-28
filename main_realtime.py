@@ -13,7 +13,7 @@ from pi_ble import ESP32BLE
 
 
 ROOT = Path(__file__).resolve().parent
-MODEL_PATH = ROOT / "ai1" / "yolo11n.pt"
+MODEL_PATH = ROOT / "ai1" / "yolo11n_toy_finetuned.pt"
 
 
 # ============================================================
