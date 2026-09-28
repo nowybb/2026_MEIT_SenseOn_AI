@@ -50,19 +50,22 @@
 // 진동 세기
 // =====================================================
 
-#define PWM_CAUTION 60
-#define PWM_DANGER 150
+// CAUTION
+#define PWM_CAUTION 90
+
+// DANGER
+#define PWM_DANGER 180
 
 
 // =====================================================
 // 최소 진동 유지시간
 // =====================================================
 
-// CAUTION 최소 500ms
-#define CAUTION_HOLD_MS 500
+// CAUTION 최소 0.7초
+#define CAUTION_HOLD_MS 700
 
-// DANGER 최소 800ms
-#define DANGER_HOLD_MS 800
+// DANGER 최소 1초
+#define DANGER_HOLD_MS 1000
 
 
 #endif
