@@ -27,6 +27,15 @@ MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
 
 
 # =========================================================
+# 스트리밍 설정
+# =========================================================
+
+# True  : 브라우저 스트리밍 사용
+# False : 스트리밍 끄기
+STREAM_ENABLED = True
+
+
+# =========================================================
 # BLE 설정
 # =========================================================
 
@@ -55,8 +64,7 @@ async def ble_reconnect_loop(
 
     while True:
 
-        # 이미 연결되어 있으면
-        # 아무것도 하지 않고 대기
+        # 이미 연결되어 있으면 대기
         if ble_state["enabled"]:
 
             await asyncio.sleep(
@@ -73,8 +81,7 @@ async def ble_reconnect_loop(
             )
 
 
-            # 이전 연결 상태가 남아 있을 수 있으므로
-            # 안전하게 한번 정리
+            # 이전 연결 상태 정리
             try:
 
                 await sender.disconnect()
@@ -84,8 +91,6 @@ async def ble_reconnect_loop(
                 pass
 
 
-            # connect_with_retry()가 너무 오래
-            # 메인 동작을 잡지 않도록 timeout 적용
             await asyncio.wait_for(
                 sender.connect_with_retry(),
                 timeout=BLE_CONNECT_TIMEOUT
@@ -121,7 +126,8 @@ async def ble_reconnect_loop(
 
 
             print(
-                f"[BLE] {BLE_RETRY_INTERVAL:.0f}초 후 재시도"
+                f"[BLE] "
+                f"{BLE_RETRY_INTERVAL:.0f}초 후 재시도"
             )
 
 
@@ -138,7 +144,8 @@ async def send_hazard_ble(
     sender,
     hazard,
     ai_result_time,
-    ble_state
+    ble_state,
+    latency_state
 ):
 
     try:
@@ -162,8 +169,6 @@ async def send_hazard_ble(
                 "[BLE] 전송 실패"
             )
 
-            # 연결 이상으로 판단
-            # 재연결 루프 활성화
             ble_state["enabled"] = False
 
             return
@@ -180,8 +185,6 @@ async def send_hazard_ble(
                 "[BLE] ACK 수신 실패"
             )
 
-            # 통신이 끊겼을 가능성이 있으므로
-            # 재연결 시도
             ble_state["enabled"] = False
 
             return
@@ -206,6 +209,12 @@ async def send_hazard_ble(
         e2e_latency = calc_latency_ms(
             ai_result_time,
             ack_time
+        )
+
+
+        # 가장 최근 latency 저장
+        latency_state["last_e2e_latency"] = (
+            e2e_latency
         )
 
 
@@ -238,10 +247,6 @@ async def send_hazard_ble(
         )
 
 
-        # BLE 전송 중 오류 발생
-        # 연결 상태 OFF
-        #
-        # reconnect loop가 자동 재연결
         ble_state["enabled"] = False
 
 
@@ -260,6 +265,15 @@ async def main():
 
     ble_state = {
         "enabled": False
+    }
+
+
+    # =====================================================
+    # E2E Latency 상태
+    # =====================================================
+
+    latency_state = {
+        "last_e2e_latency": None
     }
 
 
@@ -289,9 +303,7 @@ async def main():
     # 카메라 캡처 스레드
     #
     # AI 처리속도와 관계없이 계속 카메라를 읽음
-    #
-    # 이전 프레임을 저장하지 않고
-    # 가장 최신 프레임만 유지
+    # 이전 프레임을 저장하지 않고 최신 프레임만 유지
     # =====================================================
 
     def capture_loop():
@@ -325,10 +337,6 @@ async def main():
 
 
                 with frame_lock:
-
-                    # -----------------------------------------
-                    # 최신 프레임으로 계속 덮어쓰기
-                    # -----------------------------------------
 
                     latest_frame = frame
 
@@ -415,18 +423,27 @@ async def main():
         # 4. 실시간 스트리밍 서버 시작
         # =================================================
 
-        stream_thread = threading.Thread(
-            target=run_stream_server,
-            daemon=True
-        )
+        if STREAM_ENABLED:
+
+            stream_thread = threading.Thread(
+                target=run_stream_server,
+                daemon=True
+            )
 
 
-        stream_thread.start()
+            stream_thread.start()
 
 
-        print(
-            "[SYSTEM] Live stream server started"
-        )
+            print(
+                "[SYSTEM] Live stream server started"
+            )
+
+
+        else:
+
+            print(
+                "[SYSTEM] Live stream disabled"
+            )
 
 
         # =================================================
@@ -456,9 +473,11 @@ async def main():
             )
 
 
-        update_frame(
-            initial_frame
-        )
+        if STREAM_ENABLED:
+
+            update_frame(
+                initial_frame
+            )
 
 
         print(
@@ -469,10 +488,7 @@ async def main():
         # =================================================
         # 6. BLE 백그라운드 재연결 시작
         #
-        # 여기서 await 하지 않음
-        #
-        # 따라서 ESP32가 없어도
-        # AI / Camera / Stream 즉시 계속 실행
+        # ESP32가 없어도 AI는 계속 실행
         # =================================================
 
         print(
@@ -510,10 +526,7 @@ async def main():
         # =================================================
         # 8. AI 통합 루프
         #
-        # 항상 "가장 최신 프레임"만 분석
-        #
-        # AI 처리 중 들어온 오래된 프레임은 버리고
-        # 최신 프레임을 가져옴
+        # 항상 가장 최신 프레임만 분석
         # =================================================
 
         while True:
@@ -528,9 +541,6 @@ async def main():
                     latest_frame_id
                 )
 
-
-                # AI가 마지막으로 처리했던 프레임과
-                # 같은 프레임이면 새 프레임 기다림
 
                 if (
                     latest_frame is None
@@ -564,16 +574,6 @@ async def main():
 
             # =================================================
             # Frame Drop 계산
-            #
-            # 예:
-            #
-            # 마지막 처리 ID = 10
-            # 현재 최신 ID = 17
-            #
-            # 11~16은 처리하지 않고
-            # 최신 17 처리
-            #
-            # -> 6 frame drop
             # =================================================
 
             dropped_frames = (
@@ -638,10 +638,7 @@ async def main():
             processed_frames += 1
 
 
-            # ---------------------------------------------
             # AI 판단 완료 시점
-            # ---------------------------------------------
-
             ai_result_time = (
                 now_ms()
             )
@@ -668,22 +665,23 @@ async def main():
             # =================================================
             # 스트리밍 화면 갱신
             #
-            # AI annotation 결과가 있으면 annotation
-            # 없으면 원본 frame
+            # STREAM_ENABLED=True일 때만 실행
             # =================================================
 
-            if annotated_frame is not None:
+            if STREAM_ENABLED:
 
-                update_frame(
-                    annotated_frame
-                )
+                if annotated_frame is not None:
+
+                    update_frame(
+                        annotated_frame
+                    )
 
 
-            else:
+                else:
 
-                update_frame(
-                    frame
-                )
+                    update_frame(
+                        frame
+                    )
 
 
             # =================================================
@@ -723,9 +721,6 @@ async def main():
             # BLE 비동기 전송
             #
             # BLE가 연결된 경우만 실행
-            #
-            # ACK 기다리는 동안에도
-            # 다음 AI 프레임 처리는 계속 가능
             # =================================================
 
             current_time = (
@@ -740,11 +735,6 @@ async def main():
                 >= BLE_INTERVAL_MS
             ):
 
-                # -----------------------------------------
-                # 이전 BLE 작업이 끝났을 때만
-                # 새로운 BLE 작업 시작
-                # -----------------------------------------
-
                 if (
                     ble_task is None
                     or ble_task.done()
@@ -756,7 +746,8 @@ async def main():
                                 sender,
                                 hazard,
                                 ai_result_time,
-                                ble_state
+                                ble_state,
+                                latency_state
                             )
                         )
                     )
@@ -860,21 +851,49 @@ async def main():
 
 
                 print(
+                    f"Stream enabled   : "
+                    f"{STREAM_ENABLED}"
+                )
+
+
+                print(
                     f"BLE connected    : "
                     f"{ble_state['enabled']}"
                 )
+
+
+                # -----------------------------------------
+                # 최근 E2E latency 출력
+                # -----------------------------------------
+
+                if (
+                    latency_state[
+                        "last_e2e_latency"
+                    ]
+                    is not None
+                ):
+
+                    print(
+                        f"Last E2E latency : "
+                        f"{latency_state['last_e2e_latency']:.1f} ms"
+                    )
+
+
+                else:
+
+                    print(
+                        "Last E2E latency : "
+                        "N/A"
+                    )
 
 
                 print(
                     "==============================="
                 )
 
+
                 print()
 
-
-            # =================================================
-            # event loop 제어권 반환
-            # =================================================
 
             await asyncio.sleep(
                 0
@@ -915,7 +934,7 @@ async def main():
 
 
         # ---------------------------------------------
-        # 카메라 캡처 스레드 중지 요청
+        # 카메라 캡처 스레드 중지
         # ---------------------------------------------
 
         capture_stop.set()
@@ -961,7 +980,7 @@ async def main():
 
 
         # ---------------------------------------------
-        # BLE 전송 task 종료 대기
+        # BLE 전송 task 종료
         # ---------------------------------------------
 
         if (
