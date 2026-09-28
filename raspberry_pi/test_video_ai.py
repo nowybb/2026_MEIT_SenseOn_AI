@@ -32,13 +32,16 @@ from senseon_pipeline import FrameAnalyzer
 
 MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
 
-# 실제 영상 파일명으로 수정
-VIDEO_PATH = ROOT_DIR / "test_videos" / "Test_DANGER_640.mp4"
+VIDEO_PATH = (
+    ROOT_DIR
+    / "test_videos"
+    / "Test_DANGER_640.mp4"
+)
 
-# 성능평가할 때는 False 추천
+# 성능 측정할 때는 False 추천
 LOOP_VIDEO = False
 
-# ESP32 연결 대기 시간
+# ESP32 없을 때 연결 시도 시간
 BLE_CONNECT_TIMEOUT = 10.0
 
 
@@ -114,10 +117,25 @@ async def main():
 
         print()
         print("========== VIDEO INFO ==========")
-        print(f"Source FPS     : {source_fps:.2f}")
-        print(f"Total Frames   : {total_source_frames}")
-        print(f"Duration       : {original_duration:.2f} sec")
-        print("================================")
+
+        print(
+            f"Source FPS     : "
+            f"{source_fps:.2f}"
+        )
+
+        print(
+            f"Total Frames   : "
+            f"{total_source_frames}"
+        )
+
+        print(
+            f"Duration       : "
+            f"{original_duration:.2f} sec"
+        )
+
+        print(
+            "================================"
+        )
 
 
         # =================================================
@@ -144,6 +162,7 @@ async def main():
             "[SYSTEM] ESP32 BLE 연결 시도"
         )
 
+
         try:
 
             await asyncio.wait_for(
@@ -157,6 +176,7 @@ async def main():
                 "[SYSTEM] ESP32 BLE 연결 완료"
             )
 
+
         except Exception as e:
 
             ble_enabled = False
@@ -166,7 +186,7 @@ async def main():
             )
 
             print(
-                "[SYSTEM] AI + 영상 모드로 계속 실행"
+                "[SYSTEM] AI + 영상 + 스트리밍 모드로 계속 실행"
             )
 
             print(
@@ -180,6 +200,7 @@ async def main():
 
         loop_count = 1
 
+
         while True:
 
             # 영상 처음으로 이동
@@ -188,9 +209,11 @@ async def main():
                 0
             )
 
+
             video_start_real_time = (
                 time.perf_counter()
             )
+
 
             processed_frames = 0
             dropped_frames = 0
@@ -223,7 +246,7 @@ async def main():
 
 
                 # -------------------------------------------------
-                # 현재 시점에 해당하는 원본 프레임 번호
+                # 현재 시점에 해당하는 원본 프레임
                 # -------------------------------------------------
 
                 target_frame_index = int(
@@ -240,14 +263,15 @@ async def main():
                     target_frame_index
                     >= total_source_frames
                 ):
+
                     break
 
 
                 # =================================================
                 # 뒤처진 프레임 DROP
                 #
-                # cap.set()으로 seek하지 않고
-                # cap.grab()으로 순차적으로 넘김
+                # seek(cap.set) 하지 않고
+                # grab()으로 빠르게 넘김
                 # =================================================
 
                 while (
@@ -341,7 +365,7 @@ async def main():
 
 
                 # =================================================
-                # AI 결과 처리
+                # AI 결과
                 # =================================================
 
                 if (
@@ -413,7 +437,7 @@ async def main():
                                     )
 
 
-                                    # 기존 hazard 로그
+                                    # 기존 senseon_log.csv
                                     save_log(
                                         hazard,
                                         e2e_latency_ms=
@@ -443,7 +467,7 @@ async def main():
 
 
             # =================================================
-            # 영상 1회 종료 후 최종 성능 계산
+            # 영상 1회 종료 후 성능 계산
             # =================================================
 
             actual_duration = (
@@ -490,6 +514,7 @@ async def main():
                     / processed_frames
                 )
 
+
                 avg_ai_fps = (
                     1.0
                     / avg_ai_time
@@ -511,50 +536,60 @@ async def main():
                 "========== FINAL RESULT =========="
             )
 
+
             print(
                 f"Original Duration : "
                 f"{original_duration:.2f} sec"
             )
+
 
             print(
                 f"Actual Duration   : "
                 f"{actual_duration:.2f} sec"
             )
 
+
             print(
                 f"Source FPS        : "
                 f"{source_fps:.2f}"
             )
+
 
             print(
                 f"Processing FPS    : "
                 f"{processing_fps:.2f}"
             )
 
+
             print(
                 f"Average AI Time   : "
                 f"{avg_ai_time * 1000:.1f} ms/frame"
             )
+
 
             print(
                 f"Average AI FPS    : "
                 f"{avg_ai_fps:.2f}"
             )
 
+
             print(
                 f"Processed Frames  : "
                 f"{processed_frames}"
             )
+
 
             print(
                 f"Dropped Frames    : "
                 f"{dropped_frames}"
             )
 
+
             print(
                 f"Frame Drop Rate   : "
                 f"{drop_rate:.2f}%"
             )
+
 
             print(
                 "=================================="
@@ -573,6 +608,7 @@ async def main():
 
 
             loop_count += 1
+
 
             print(
                 "[SYSTEM] 영상 처음부터 다시 재생"
@@ -596,9 +632,11 @@ async def main():
         if ble_enabled:
 
             try:
+
                 await sender.disconnect()
 
             except Exception:
+
                 pass
 
 
