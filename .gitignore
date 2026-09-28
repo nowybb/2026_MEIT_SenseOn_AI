@@ -5,12 +5,9 @@ __pycache__/
 *.pyc
 
 # AI1 test data
-ai1/videos/
 ai1/outputs/
 ai1/runs/
 
-# Model weights
-*.pt
 
 # Environment
 .env
