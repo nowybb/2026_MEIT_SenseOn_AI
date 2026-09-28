@@ -17,7 +17,7 @@ from senseon_pipeline import FrameAnalyzer
 
 
 MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
-VIDEO_PATH = ROOT_DIR / "test_videos" / "danger_test.mp4"
+VIDEO_PATH = ROOT_DIR / "test_videos" / "Test_DANGER.mp4"
 
 
 async def main():
