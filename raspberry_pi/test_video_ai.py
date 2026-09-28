@@ -2,6 +2,7 @@ import asyncio
 import threading
 import sys
 import time
+import csv
 from pathlib import Path
 
 import cv2
@@ -46,6 +47,142 @@ BLE_CONNECT_TIMEOUT = 10.0
 
 
 # =========================================================
+# 테스트 CSV 로그
+# =========================================================
+
+TEST_LOG_PATH = (
+    RASPBERRY_PI_DIR
+    / "test_video_log.csv"
+)
+
+
+TEST_LOG_HEADER = [
+    "video_name",
+    "loop",
+    "event",
+    "video_time_sec",
+    "state",
+    "object",
+    "direction",
+    "risk",
+    "ttc",
+    "latency_ms",
+    "processed_frames",
+    "dropped_frames",
+    "processing_fps",
+    "avg_ai_time_ms",
+    "avg_ai_fps",
+    "frame_drop_rate_percent"
+]
+
+
+def append_test_log(
+    video_name,
+    loop_count,
+    event,
+    video_time_sec="",
+    state="",
+    object_name="",
+    direction="",
+    risk="",
+    ttc="",
+    latency_ms="",
+    processed_frames="",
+    dropped_frames="",
+    processing_fps="",
+    avg_ai_time_ms="",
+    avg_ai_fps="",
+    frame_drop_rate_percent=""
+):
+
+    # 파일이 없거나 비어 있으면 헤더 작성
+    need_header = (
+        not TEST_LOG_PATH.exists()
+        or TEST_LOG_PATH.stat().st_size == 0
+    )
+
+
+    with open(
+        TEST_LOG_PATH,
+        "a",
+        newline="",
+        encoding="utf-8-sig"
+    ) as f:
+
+        writer = csv.writer(f)
+
+
+        if need_header:
+
+            writer.writerow(
+                TEST_LOG_HEADER
+            )
+
+
+        writer.writerow([
+            video_name,
+            loop_count,
+            event,
+            video_time_sec,
+            state,
+            object_name,
+            direction,
+            risk,
+            ttc,
+            latency_ms,
+            processed_frames,
+            dropped_frames,
+            processing_fps,
+            avg_ai_time_ms,
+            avg_ai_fps,
+            frame_drop_rate_percent
+        ])
+
+
+# =========================================================
+# Hazard 값 가져오기
+# =========================================================
+
+def get_hazard_value(
+    hazard,
+    key,
+    default=""
+):
+
+    if hazard is None:
+        return default
+
+
+    # dictionary 형태
+    if isinstance(
+        hazard,
+        dict
+    ):
+
+        value = hazard.get(
+            key,
+            default
+        )
+
+
+    # 객체 형태
+    else:
+
+        value = getattr(
+            hazard,
+            key,
+            default
+        )
+
+
+    if value is None:
+        return ""
+
+
+    return value
+
+
+# =========================================================
 # 메인
 # =========================================================
 
@@ -62,13 +199,19 @@ async def main():
         # 1. AI 모델 로드
         # =================================================
 
-        print("[SYSTEM] AI 모델 로드 시작")
+        print(
+            "[SYSTEM] AI 모델 로드 시작"
+        )
+
 
         analyzer = FrameAnalyzer(
             str(MODEL_PATH)
         )
 
-        print("[SYSTEM] AI 모델 로드 완료")
+
+        print(
+            "[SYSTEM] AI 모델 로드 완료"
+        )
 
 
         # =================================================
@@ -79,13 +222,16 @@ async def main():
             str(VIDEO_PATH)
         )
 
+
         if not cap.isOpened():
 
             print(
                 "[ERROR] 영상 파일을 열 수 없습니다:"
             )
 
-            print(VIDEO_PATH)
+            print(
+                VIDEO_PATH
+            )
 
             return
 
@@ -98,7 +244,9 @@ async def main():
             cv2.CAP_PROP_FPS
         )
 
+
         if source_fps <= 0:
+
             source_fps = 30.0
 
 
@@ -115,26 +263,44 @@ async def main():
         )
 
 
+        video_name = (
+            VIDEO_PATH.name
+        )
+
+
         print()
-        print("========== VIDEO INFO ==========")
+
+        print(
+            "========== VIDEO INFO =========="
+        )
+
 
         print(
             f"Source FPS     : "
             f"{source_fps:.2f}"
         )
 
+
         print(
             f"Total Frames   : "
             f"{total_source_frames}"
         )
+
 
         print(
             f"Duration       : "
             f"{original_duration:.2f} sec"
         )
 
+
         print(
             "================================"
+        )
+
+
+        print(
+            f"[LOG] CSV 저장 위치: "
+            f"{TEST_LOG_PATH}"
         )
 
 
@@ -147,7 +313,9 @@ async def main():
             daemon=True
         )
 
+
         stream_thread.start()
+
 
         print(
             "[SYSTEM] Live stream server started"
@@ -170,7 +338,9 @@ async def main():
                 timeout=BLE_CONNECT_TIMEOUT
             )
 
+
             ble_enabled = True
+
 
             print(
                 "[SYSTEM] ESP32 BLE 연결 완료"
@@ -181,13 +351,16 @@ async def main():
 
             ble_enabled = False
 
+
             print(
                 "[SYSTEM] ESP32 연결 실패"
             )
 
+
             print(
                 "[SYSTEM] AI + 영상 + 스트리밍 모드로 계속 실행"
             )
+
 
             print(
                 f"[BLE] {e}"
@@ -224,8 +397,22 @@ async def main():
 
 
             print()
+
             print(
-                f"========== LOOP {loop_count} START =========="
+                f"========== LOOP "
+                f"{loop_count} START =========="
+            )
+
+
+            # =================================================
+            # CSV : 테스트 시작 표시
+            # =================================================
+
+            append_test_log(
+                video_name=video_name,
+                loop_count=loop_count,
+                event="START",
+                video_time_sec=0.0
             )
 
 
@@ -281,8 +468,11 @@ async def main():
 
                     grabbed = cap.grab()
 
+
                     if not grabbed:
+
                         break
+
 
                     current_frame_index += 1
                     dropped_frames += 1
@@ -294,13 +484,19 @@ async def main():
 
                 ret, frame = cap.read()
 
+
                 if not ret:
+
                     break
 
 
                 current_frame_index += 1
                 processed_frames += 1
 
+
+                # =================================================
+                # 영상 자체의 현재 시점
+                # =================================================
 
                 current_video_time = (
                     current_frame_index
@@ -333,7 +529,8 @@ async def main():
 
 
                 ai_time = (
-                    ai_end - ai_start
+                    ai_end
+                    - ai_start
                 )
 
 
@@ -356,6 +553,7 @@ async def main():
                     update_frame(
                         annotated_frame
                     )
+
 
                 else:
 
@@ -382,6 +580,39 @@ async def main():
                         "[AI]",
                         hazard
                     )
+
+
+                    # ---------------------------------------------
+                    # Hazard 정보
+                    # ---------------------------------------------
+
+                    object_name = get_hazard_value(
+                        hazard,
+                        "object"
+                    )
+
+
+                    direction = get_hazard_value(
+                        hazard,
+                        "direction"
+                    )
+
+
+                    risk = get_hazard_value(
+                        hazard,
+                        "risk"
+                    )
+
+
+                    ttc = get_hazard_value(
+                        hazard,
+                        "ttc"
+                    )
+
+
+                    # ESP32 연결 안 되어 있으면
+                    # latency 칸은 빈칸 유지
+                    e2e_latency = ""
 
 
                     # =================================================
@@ -466,6 +697,44 @@ async def main():
                             )
 
 
+                    # =================================================
+                    # CSV : AI 결과 저장
+                    #
+                    # 현재 실제 시각이 아니라
+                    # "영상의 몇 초 지점인지" 저장
+                    # =================================================
+
+                    append_test_log(
+                        video_name=video_name,
+                        loop_count=loop_count,
+                        event="AI_RESULT",
+
+                        video_time_sec=round(
+                            current_video_time,
+                            3
+                        ),
+
+                        state=state,
+
+                        object_name=object_name,
+
+                        direction=direction,
+
+                        risk=risk,
+
+                        ttc=ttc,
+
+                        latency_ms=(
+                            round(
+                                e2e_latency,
+                                2
+                            )
+                            if e2e_latency != ""
+                            else ""
+                        )
+                    )
+
+
             # =================================================
             # 영상 1회 종료 후 성능 계산
             # =================================================
@@ -490,6 +759,7 @@ async def main():
                     * 100.0
                 )
 
+
             else:
 
                 drop_rate = 0.0
@@ -501,6 +771,7 @@ async def main():
                     processed_frames
                     / actual_duration
                 )
+
 
             else:
 
@@ -520,10 +791,53 @@ async def main():
                     / avg_ai_time
                 )
 
+
             else:
 
                 avg_ai_time = 0.0
                 avg_ai_fps = 0.0
+
+
+            # =================================================
+            # CSV : 테스트 종료 표시 + 최종 성능
+            # =================================================
+
+            append_test_log(
+                video_name=video_name,
+                loop_count=loop_count,
+                event="END",
+
+                video_time_sec=round(
+                    original_duration,
+                    3
+                ),
+
+                processed_frames=
+                processed_frames,
+
+                dropped_frames=
+                dropped_frames,
+
+                processing_fps=round(
+                    processing_fps,
+                    3
+                ),
+
+                avg_ai_time_ms=round(
+                    avg_ai_time * 1000.0,
+                    3
+                ),
+
+                avg_ai_fps=round(
+                    avg_ai_fps,
+                    3
+                ),
+
+                frame_drop_rate_percent=round(
+                    drop_rate,
+                    3
+                )
+            )
 
 
             # =================================================
@@ -532,6 +846,8 @@ async def main():
 
             print()
             print()
+
+
             print(
                 "========== FINAL RESULT =========="
             )
@@ -595,6 +911,13 @@ async def main():
                 "=================================="
             )
 
+
+            print(
+                f"[LOG] 테스트 결과 저장 완료: "
+                f"{TEST_LOG_PATH}"
+            )
+
+
             print()
             print()
 
@@ -604,6 +927,7 @@ async def main():
             # =================================================
 
             if not LOOP_VIDEO:
+
                 break
 
 
@@ -618,6 +942,7 @@ async def main():
     except KeyboardInterrupt:
 
         print()
+
         print(
             "[SYSTEM] 사용자 종료"
         )
@@ -626,6 +951,7 @@ async def main():
     finally:
 
         if cap is not None:
+
             cap.release()
 
 
@@ -634,6 +960,7 @@ async def main():
             try:
 
                 await sender.disconnect()
+
 
             except Exception:
 
