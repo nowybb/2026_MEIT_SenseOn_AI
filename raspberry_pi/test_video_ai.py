@@ -325,17 +325,17 @@ async def main():
                 # 스트리밍
                 # =================================================
 
-                if annotated_frame is not None:
+                #if annotated_frame is not None:
 
-                    update_frame(
-                        annotated_frame
-                    )
+                #    update_frame(
+                #        annotated_frame
+                #    )
 
-                else:
+                #else:
 
-                    update_frame(
-                        frame
-                    )
+                #    update_frame(
+                #        frame
+                #    )
 
 
                 # =================================================
