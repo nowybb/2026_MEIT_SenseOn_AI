@@ -8,31 +8,25 @@
 
 
 // =====================================================
-// 현재 모터 상태
+// 현재 상태
 // =====================================================
 
 bool motorActive = false;
 
-
-// 현재 실제로 진동시키고 있는 위험도
+// 실제로 현재 진동 중인 위험도
 String activeRisk = "SAFE";
 
-
-// 현재 실제로 진동시키고 있는 방향
+// 실제로 현재 진동 중인 방향
 String activeDirection = "CENTER";
 
-
-// 가장 최근에 AI에서 받은 상태
+// 가장 최근 AI 상태
 String latestRisk = "SAFE";
 
-
-// 가장 최근에 AI에서 받은 방향
+// 가장 최근 AI 방향
 String latestDirection = "CENTER";
 
-
-// 최소 진동 유지 시작 시간
+// 최소 진동 시작 시간
 unsigned long holdStartTime = 0;
-
 
 // 현재 최소 유지시간
 unsigned long holdDuration = 0;
@@ -44,14 +38,13 @@ unsigned long holdDuration = 0;
 
 void setupMotor() {
 
-  // A = 오른쪽 모터
+  // A = 오른쪽
   pinMode(RIGHT_IN1, OUTPUT);
   pinMode(RIGHT_IN2, OUTPUT);
 
-  // B = 왼쪽 모터
+  // B = 왼쪽
   pinMode(LEFT_IN1, OUTPUT);
   pinMode(LEFT_IN2, OUTPUT);
-
 
   analogWrite(RIGHT_IN1, 0);
   analogWrite(RIGHT_IN2, 0);
@@ -59,12 +52,10 @@ void setupMotor() {
   analogWrite(LEFT_IN1, 0);
   analogWrite(LEFT_IN2, 0);
 
-
   motorActive = false;
 
   activeRisk = "SAFE";
   latestRisk = "SAFE";
-
 
   Serial.println("[MOTOR] Ready");
 }
@@ -82,18 +73,16 @@ void stopMotors() {
   analogWrite(LEFT_IN1, 0);
   analogWrite(LEFT_IN2, 0);
 
-
   motorActive = false;
 
   activeRisk = "SAFE";
-
 
   Serial.println("[MOTOR] OFF");
 }
 
 
 // =====================================================
-// 현재 모터가 켜져 있는지
+// 모터가 켜져 있는지
 // =====================================================
 
 bool isMotorActive() {
@@ -103,7 +92,7 @@ bool isMotorActive() {
 
 
 // =====================================================
-// 최소 유지시간이 끝났는지 확인
+// 최소 유지시간 끝났는지
 // =====================================================
 
 bool isHoldFinished() {
@@ -112,10 +101,8 @@ bool isHoldFinished() {
     return true;
   }
 
-
   unsigned long elapsed =
     millis() - holdStartTime;
-
 
   return (
     elapsed >= holdDuration
@@ -133,15 +120,12 @@ unsigned long getRemainingHoldTime() {
     return 0;
   }
 
-
   unsigned long elapsed =
     millis() - holdStartTime;
-
 
   if (elapsed >= holdDuration) {
     return 0;
   }
-
 
   return (
     holdDuration - elapsed
@@ -158,7 +142,7 @@ void runMotor(
   int power
 ) {
 
-  // 먼저 양쪽 출력 초기화
+  // 기존 출력 초기화
   analogWrite(RIGHT_IN1, 0);
   analogWrite(RIGHT_IN2, 0);
 
@@ -166,11 +150,10 @@ void runMotor(
   analogWrite(LEFT_IN2, 0);
 
 
-  // ===================================================
+  // ==============================
   // RIGHT
-  //
-  // A채널 = 오른쪽 모터
-  // ===================================================
+  // A채널
+  // ==============================
 
   if (direction == "RIGHT") {
 
@@ -184,7 +167,6 @@ void runMotor(
       0
     );
 
-
     Serial.print(
       "[MOTOR] RIGHT(A) PWM="
     );
@@ -195,11 +177,10 @@ void runMotor(
   }
 
 
-  // ===================================================
+  // ==============================
   // LEFT
-  //
-  // B채널 = 왼쪽 모터
-  // ===================================================
+  // B채널
+  // ==============================
 
   else if (direction == "LEFT") {
 
@@ -213,7 +194,6 @@ void runMotor(
       0
     );
 
-
     Serial.print(
       "[MOTOR] LEFT(B) PWM="
     );
@@ -224,15 +204,13 @@ void runMotor(
   }
 
 
-  // ===================================================
+  // ==============================
   // CENTER
-  //
-  // 양쪽 모터
-  // ===================================================
+  // 양쪽
+  // ==============================
 
   else if (direction == "CENTER") {
 
-    // 오른쪽 A
     analogWrite(
       RIGHT_IN1,
       power
@@ -243,8 +221,6 @@ void runMotor(
       0
     );
 
-
-    // 왼쪽 B
     analogWrite(
       LEFT_IN1,
       power
@@ -254,7 +230,6 @@ void runMotor(
       LEFT_IN2,
       0
     );
-
 
     Serial.print(
       "[MOTOR] CENTER(A+B) PWM="
@@ -271,17 +246,14 @@ void runMotor(
 
 
 // =====================================================
-// Raspberry Pi에서 새 위험정보가 들어왔을 때 호출
+// 새 AI 결과 수신
 // =====================================================
 
 void controlMotor(
   const HazardData& hazard
 ) {
 
-  // ---------------------------------------------------
   // 최신 AI 상태 저장
-  // ---------------------------------------------------
-
   latestRisk =
     hazard.risk;
 
@@ -289,20 +261,11 @@ void controlMotor(
     hazard.direction;
 
 
-  Serial.print(
-    "[MOTOR] Latest risk = "
-  );
-
-  Serial.println(
-    latestRisk
-  );
-
-
   // ===================================================
   // DANGER
   //
-  // 들어오는 즉시 강한 진동
-  // 그리고 800ms 새로 시작
+  // 즉시 강하게
+  // 최소 1000ms 새로 시작
   // ===================================================
 
   if (
@@ -313,7 +276,6 @@ void controlMotor(
       "[MOTOR] DANGER received"
     );
 
-
     activeRisk =
       "DANGER";
 
@@ -321,14 +283,12 @@ void controlMotor(
       hazard.direction;
 
 
-    // 즉시 강한 진동
     runMotor(
       hazard.direction,
       PWM_DANGER
     );
 
 
-    // DANGER 최소시간 새로 시작
     holdStartTime =
       millis();
 
@@ -337,9 +297,8 @@ void controlMotor(
 
 
     Serial.println(
-      "[MOTOR] DANGER minimum hold = 800ms"
+      "[MOTOR] DANGER minimum hold = 1000ms"
     );
-
 
     return;
   }
@@ -358,20 +317,15 @@ void controlMotor(
     );
 
 
-    // -------------------------------------------------
-    // 현재 DANGER의 최소 800ms가 아직 안 끝난 경우
-    //
-    // CAUTION이 들어와도
-    // DANGER를 바로 약하게 만들지 않음
-    // -------------------------------------------------
-
+    // DANGER 최소시간이 아직 안 끝났으면
+    // CAUTION으로 바로 낮추지 않음
     if (
       activeRisk == "DANGER" &&
       !isHoldFinished()
     ) {
 
       Serial.println(
-        "[MOTOR] DANGER hold still active"
+        "[MOTOR] DANGER hold active"
       );
 
       Serial.print(
@@ -386,14 +340,9 @@ void controlMotor(
         " ms"
       );
 
-
       return;
     }
 
-
-    // -------------------------------------------------
-    // CAUTION 시작
-    // -------------------------------------------------
 
     activeRisk =
       "CAUTION";
@@ -402,14 +351,12 @@ void controlMotor(
       hazard.direction;
 
 
-    // 즉시 약한 진동
     runMotor(
       hazard.direction,
       PWM_CAUTION
     );
 
 
-    // CAUTION 최소시간 시작
     holdStartTime =
       millis();
 
@@ -418,9 +365,8 @@ void controlMotor(
 
 
     Serial.println(
-      "[MOTOR] CAUTION minimum hold = 500ms"
+      "[MOTOR] CAUTION minimum hold = 700ms"
     );
-
 
     return;
   }
@@ -439,7 +385,7 @@ void controlMotor(
     );
 
 
-    // 이미 모터 OFF 상태
+    // 이미 꺼져 있음
     if (!motorActive) {
 
       Serial.println(
@@ -450,11 +396,7 @@ void controlMotor(
     }
 
 
-    // -------------------------------------------------
-    // 최소 유지시간이 이미 끝났다면
-    // SAFE 수신 즉시 OFF
-    // -------------------------------------------------
-
+    // 최소 유지시간이 끝난 상태면 즉시 OFF
     if (
       isHoldFinished()
     ) {
@@ -467,24 +409,16 @@ void controlMotor(
         "[MOTOR] SAFE -> OFF"
       );
 
-
       stopMotors();
-
 
       return;
     }
 
 
-    // -------------------------------------------------
-    // 아직 최소시간이 안 끝남
-    //
-    // SAFE가 들어와도 모터 계속 유지
-    // -------------------------------------------------
-
+    // 최소시간이 아직 안 끝났으면 계속 진동
     Serial.println(
-      "[MOTOR] SAFE received, but minimum hold is active"
+      "[MOTOR] SAFE received but hold active"
     );
-
 
     Serial.print(
       "[MOTOR] Remaining = "
@@ -498,68 +432,56 @@ void controlMotor(
       " ms"
     );
 
-
     return;
   }
 }
 
 
 // =====================================================
-// loop()에서 계속 호출
-//
-// SAFE가 최소 유지시간 도중 들어왔을 경우
-// 시간이 끝난 순간 실제로 모터를 OFF
+// loop에서 계속 호출
+// 최소시간 끝난 뒤 최신 상태 확인
 // =====================================================
 
 void updateMotorState() {
 
-  // 모터가 꺼져 있으면 아무것도 안 함
   if (!motorActive) {
     return;
   }
 
 
-  // 최소시간이 아직 안 끝남
   if (!isHoldFinished()) {
     return;
   }
 
 
-  // ===================================================
-  // 최소 유지시간이 끝났고
-  // 가장 최근 AI 상태가 SAFE
-  // ===================================================
+  // ==============================
+  // 최신 상태가 SAFE
+  // -> OFF
+  // ==============================
 
   if (
     latestRisk == "SAFE"
   ) {
 
     Serial.println(
-      "[MOTOR] Minimum hold finished"
+      "[MOTOR] Hold finished"
     );
 
     Serial.println(
-      "[MOTOR] Latest state = SAFE"
+      "[MOTOR] Latest SAFE -> OFF"
     );
-
-    Serial.println(
-      "[MOTOR] Motor OFF"
-    );
-
 
     stopMotors();
-
 
     return;
   }
 
 
-  // ===================================================
-  // DANGER 유지시간이 끝났는데
-  // 최신 상태가 CAUTION인 경우
-  //
-  // DANGER -> CAUTION으로 낮춤
-  // ===================================================
+  // ==============================
+  // DANGER 유지시간 끝났는데
+  // 최신 상태가 CAUTION
+  // -> CAUTION으로 낮춤
+  // ==============================
 
   if (
     activeRisk == "DANGER" &&
@@ -571,11 +493,7 @@ void updateMotorState() {
     );
 
     Serial.println(
-      "[MOTOR] Latest state = CAUTION"
-    );
-
-    Serial.println(
-      "[MOTOR] Change DANGER -> CAUTION"
+      "[MOTOR] Change to CAUTION"
     );
 
 
@@ -592,22 +510,18 @@ void updateMotorState() {
     );
 
 
-    // CAUTION 최소 500ms 새로 시작
     holdStartTime =
       millis();
 
     holdDuration =
       CAUTION_HOLD_MS;
 
-
     return;
   }
 
 
-  // ===================================================
-  // 최신 상태도 계속 위험 상태라면
-  // 현재 진동 그대로 유지
-  // ===================================================
+  // 최신 상태가 계속 위험이면
+  // 진동 그대로 유지
 }
 
 #endif
