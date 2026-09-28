@@ -133,6 +133,8 @@ class FrameAnalyzer:
             tracker="botsort.yaml",
             classes=TARGET_CLASSES,
             conf=0.3,
+            imgsz=320,
+            max_det=20,
             verbose=False,
         )[0]
 
