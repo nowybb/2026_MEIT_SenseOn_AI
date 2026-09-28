@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT_DIR))
 from senseon_pipeline import FrameAnalyzer
 
 
-MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
+MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n_toy_finetuned.pt"
 
 
 # =========================================================
