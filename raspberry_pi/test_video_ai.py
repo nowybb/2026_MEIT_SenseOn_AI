@@ -35,10 +35,10 @@ MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
 # 실제 영상 파일명으로 수정
 VIDEO_PATH = ROOT_DIR / "test_videos" / "Test_DANGER_640.mp4"
 
-# 성능 측정할 때는 False 추천
+# 성능평가할 때는 False 추천
 LOOP_VIDEO = False
 
-# ESP32 없을 때 BLE 연결 시도 시간
+# ESP32 연결 대기 시간
 BLE_CONNECT_TIMEOUT = 10.0
 
 
@@ -182,6 +182,7 @@ async def main():
 
         while True:
 
+            # 영상 처음으로 이동
             cap.set(
                 cv2.CAP_PROP_POS_FRAMES,
                 0
@@ -190,7 +191,6 @@ async def main():
             video_start_real_time = (
                 time.perf_counter()
             )
-
 
             processed_frames = 0
             dropped_frames = 0
@@ -212,21 +212,30 @@ async def main():
 
             while True:
 
+                # -------------------------------------------------
                 # 실제 경과 시간
+                # -------------------------------------------------
+
                 real_elapsed = (
                     time.perf_counter()
                     - video_start_real_time
                 )
 
 
-                # 현재 시점에 해당하는 원본 프레임
+                # -------------------------------------------------
+                # 현재 시점에 해당하는 원본 프레임 번호
+                # -------------------------------------------------
+
                 target_frame_index = int(
                     real_elapsed
                     * source_fps
                 )
 
 
+                # -------------------------------------------------
                 # 영상 끝
+                # -------------------------------------------------
+
                 if (
                     target_frame_index
                     >= total_source_frames
@@ -235,31 +244,24 @@ async def main():
 
 
                 # =================================================
-                # 뒤처졌으면 중간 프레임 DROP
+                # 뒤처진 프레임 DROP
+                #
+                # cap.set()으로 seek하지 않고
+                # cap.grab()으로 순차적으로 넘김
                 # =================================================
 
-                if (
-                    target_frame_index
-                    > current_frame_index
+                while (
+                    current_frame_index
+                    < target_frame_index
                 ):
 
-                    frames_to_drop = (
-                        target_frame_index
-                        - current_frame_index
-                    )
+                    grabbed = cap.grab()
 
-                    cap.set(
-                        cv2.CAP_PROP_POS_FRAMES,
-                        target_frame_index
-                    )
+                    if not grabbed:
+                        break
 
-                    dropped_frames += (
-                        frames_to_drop
-                    )
-
-                    current_frame_index = (
-                        target_frame_index
-                    )
+                    current_frame_index += 1
+                    dropped_frames += 1
 
 
                 # =================================================
@@ -322,24 +324,24 @@ async def main():
 
 
                 # =================================================
-                # 스트리밍
+                # 브라우저 스트리밍
                 # =================================================
 
-                #if annotated_frame is not None:
+                if annotated_frame is not None:
 
-                #    update_frame(
-                #        annotated_frame
-                #    )
+                    update_frame(
+                        annotated_frame
+                    )
 
-                #else:
+                else:
 
-                #    update_frame(
-                #        frame
-                #    )
+                    update_frame(
+                        frame
+                    )
 
 
                 # =================================================
-                # AI 결과
+                # AI 결과 처리
                 # =================================================
 
                 if (
@@ -359,7 +361,7 @@ async def main():
 
 
                     # =================================================
-                    # BLE 연결된 경우
+                    # BLE 연결되어 있을 때만 전송
                     # =================================================
 
                     if ble_enabled:
@@ -411,7 +413,7 @@ async def main():
                                     )
 
 
-                                    # 기존 senseon_log.csv 저장
+                                    # 기존 hazard 로그
                                     save_log(
                                         hazard,
                                         e2e_latency_ms=
@@ -500,7 +502,7 @@ async def main():
 
 
             # =================================================
-            # 최종 결과 Remote Shell 출력
+            # 최종 결과 출력
             # =================================================
 
             print()
