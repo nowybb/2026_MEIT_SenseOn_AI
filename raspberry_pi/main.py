@@ -34,6 +34,101 @@ MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
 # 200ms = 최대 5Hz
 BLE_INTERVAL_MS = 200
 
+# BLE 연결 1회 시도 최대 시간
+BLE_CONNECT_TIMEOUT = 10.0
+
+# 연결 실패 후 재시도 간격
+BLE_RETRY_INTERVAL = 3.0
+
+
+# =========================================================
+# BLE 재연결 루프
+#
+# ESP32가 없어도 AI / 카메라 / 스트리밍은 계속 실행
+# BLE는 백그라운드에서 계속 연결 재시도
+# =========================================================
+
+async def ble_reconnect_loop(
+    sender,
+    ble_state
+):
+
+    while True:
+
+        # 이미 연결되어 있으면
+        # 아무것도 하지 않고 대기
+        if ble_state["enabled"]:
+
+            await asyncio.sleep(
+                BLE_RETRY_INTERVAL
+            )
+
+            continue
+
+
+        try:
+
+            print(
+                "[BLE] ESP32 연결 시도"
+            )
+
+
+            # 이전 연결 상태가 남아 있을 수 있으므로
+            # 안전하게 한번 정리
+            try:
+
+                await sender.disconnect()
+
+            except Exception:
+
+                pass
+
+
+            # connect_with_retry()가 너무 오래
+            # 메인 동작을 잡지 않도록 timeout 적용
+            await asyncio.wait_for(
+                sender.connect_with_retry(),
+                timeout=BLE_CONNECT_TIMEOUT
+            )
+
+
+            ble_state["enabled"] = True
+
+
+            print(
+                "[BLE] ESP32 연결 완료"
+            )
+
+
+        except asyncio.CancelledError:
+
+            print(
+                "[BLE] 재연결 task 종료"
+            )
+
+            raise
+
+
+        except Exception as e:
+
+            ble_state["enabled"] = False
+
+
+            print(
+                f"[BLE] 연결 실패: "
+                f"{type(e).__name__}: {repr(e)}"
+            )
+
+
+            print(
+                f"[BLE] {BLE_RETRY_INTERVAL:.0f}초 후 재시도"
+            )
+
+
+        await asyncio.sleep(
+            BLE_RETRY_INTERVAL
+        )
+
 
 # =========================================================
 # BLE 비동기 전송
@@ -42,30 +137,53 @@ BLE_INTERVAL_MS = 200
 async def send_hazard_ble(
     sender,
     hazard,
-    ai_result_time
+    ai_result_time,
+    ble_state
 ):
 
     try:
 
-        packet = encode_hazard(hazard)
+        packet = encode_hazard(
+            hazard
+        )
+
 
         sender.clear_ack()
+
 
         send_success = await sender.send(
             packet
         )
 
+
         if not send_success:
 
-            print("[BLE] 전송 실패")
+            print(
+                "[BLE] 전송 실패"
+            )
+
+            # 연결 이상으로 판단
+            # 재연결 루프 활성화
+            ble_state["enabled"] = False
+
             return
 
 
-        ack_received = await sender.wait_for_ack()
+        ack_received = (
+            await sender.wait_for_ack()
+        )
+
 
         if not ack_received:
 
-            print("[BLE] ACK 수신 실패")
+            print(
+                "[BLE] ACK 수신 실패"
+            )
+
+            # 통신이 끊겼을 가능성이 있으므로
+            # 재연결 시도
+            ble_state["enabled"] = False
+
             return
 
 
@@ -78,7 +196,11 @@ async def send_hazard_ble(
 
         # ---------------------------------------------
         # End-to-End Latency
-        # AI 판단 완료 -> ACK 수신
+        #
+        # AI 판단 완료
+        # -> BLE
+        # -> ESP32 처리
+        # -> ACK 수신
         # ---------------------------------------------
 
         e2e_latency = calc_latency_ms(
@@ -94,13 +216,18 @@ async def send_hazard_ble(
 
 
         # ---------------------------------------------
-        # CSV 로그 저장
+        # 기존 CSV 로그 저장
         # ---------------------------------------------
 
         save_log(
             hazard,
             e2e_latency_ms=e2e_latency
         )
+
+
+    except asyncio.CancelledError:
+
+        raise
 
 
     except Exception as e:
@@ -111,6 +238,13 @@ async def send_hazard_ble(
         )
 
 
+        # BLE 전송 중 오류 발생
+        # 연결 상태 OFF
+        #
+        # reconnect loop가 자동 재연결
+        ble_state["enabled"] = False
+
+
 # =========================================================
 # MAIN
 # =========================================================
@@ -119,12 +253,23 @@ async def main():
 
     sender = BLESender()
 
+
+    # =====================================================
+    # BLE 상태
+    # =====================================================
+
+    ble_state = {
+        "enabled": False
+    }
+
+
     camera = None
 
     capture_thread = None
     capture_stop = threading.Event()
 
     ble_task = None
+    ble_reconnect_task = None
 
     last_ble_time = 0
 
@@ -144,7 +289,9 @@ async def main():
     # 카메라 캡처 스레드
     #
     # AI 처리속도와 관계없이 계속 카메라를 읽음
-    # 이전 프레임을 저장하지 않고 최신 프레임만 유지
+    #
+    # 이전 프레임을 저장하지 않고
+    # 가장 최신 프레임만 유지
     # =====================================================
 
     def capture_loop():
@@ -152,6 +299,7 @@ async def main():
         nonlocal latest_frame
         nonlocal latest_timestamp
         nonlocal latest_frame_id
+
 
         print(
             "[CAMERA] Latest-frame capture thread started"
@@ -164,18 +312,29 @@ async def main():
 
                 frame = camera.get_frame()
 
+
                 if frame is None:
+
                     continue
 
 
-                timestamp = now_ms() / 1000.0
+                timestamp = (
+                    now_ms()
+                    / 1000.0
+                )
 
 
                 with frame_lock:
 
+                    # -----------------------------------------
                     # 최신 프레임으로 계속 덮어쓰기
+                    # -----------------------------------------
+
                     latest_frame = frame
-                    latest_timestamp = timestamp
+
+                    latest_timestamp = (
+                        timestamp
+                    )
 
                     latest_frame_id += 1
 
@@ -186,7 +345,8 @@ async def main():
 
                     print(
                         f"[CAMERA ERROR] "
-                        f"{type(e).__name__}: {repr(e)}"
+                        f"{type(e).__name__}: "
+                        f"{repr(e)}"
                     )
 
                 break
@@ -229,6 +389,7 @@ async def main():
 
         camera = Camera()
 
+
         camera.start()
 
 
@@ -246,6 +407,7 @@ async def main():
             daemon=True
         )
 
+
         capture_thread.start()
 
 
@@ -257,6 +419,7 @@ async def main():
             target=run_stream_server,
             daemon=True
         )
+
 
         stream_thread.start()
 
@@ -288,7 +451,9 @@ async def main():
                     break
 
 
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(
+                0.01
+            )
 
 
         update_frame(
@@ -302,19 +467,26 @@ async def main():
 
 
         # =================================================
-        # 6. BLE 연결
+        # 6. BLE 백그라운드 재연결 시작
+        #
+        # 여기서 await 하지 않음
+        #
+        # 따라서 ESP32가 없어도
+        # AI / Camera / Stream 즉시 계속 실행
         # =================================================
 
         print(
-            "[SYSTEM] ESP32 BLE 연결 시작"
+            "[SYSTEM] BLE 백그라운드 연결 시작"
         )
 
 
-        await sender.connect_with_retry()
-
-
-        print(
-            "[SYSTEM] ESP32 BLE 연결 완료"
+        ble_reconnect_task = (
+            asyncio.create_task(
+                ble_reconnect_loop(
+                    sender,
+                    ble_state
+                )
+            )
         )
 
 
@@ -328,13 +500,20 @@ async def main():
 
         total_ai_time = 0.0
 
-        stats_start_time = time.monotonic()
+        total_dropped_frames = 0
+
+        stats_start_time = (
+            time.monotonic()
+        )
 
 
         # =================================================
         # 8. AI 통합 루프
         #
         # 항상 "가장 최신 프레임"만 분석
+        #
+        # AI 처리 중 들어온 오래된 프레임은 버리고
+        # 최신 프레임을 가져옴
         # =================================================
 
         while True:
@@ -345,11 +524,14 @@ async def main():
 
             with frame_lock:
 
-                current_frame_id = latest_frame_id
+                current_frame_id = (
+                    latest_frame_id
+                )
 
 
                 # AI가 마지막으로 처리했던 프레임과
                 # 같은 프레임이면 새 프레임 기다림
+
                 if (
                     latest_frame is None
                     or current_frame_id
@@ -358,16 +540,24 @@ async def main():
 
                     frame = None
 
+
                 else:
 
-                    frame = latest_frame.copy()
+                    frame = (
+                        latest_frame.copy()
+                    )
 
-                    timestamp = latest_timestamp
+
+                    timestamp = (
+                        latest_timestamp
+                    )
 
 
             if frame is None:
 
-                await asyncio.sleep(0.001)
+                await asyncio.sleep(
+                    0.001
+                )
 
                 continue
 
@@ -376,10 +566,13 @@ async def main():
             # Frame Drop 계산
             #
             # 예:
+            #
             # 마지막 처리 ID = 10
             # 현재 최신 ID = 17
             #
-            # 11~16은 처리하지 않고 최신 17 처리
+            # 11~16은 처리하지 않고
+            # 최신 17 처리
+            #
             # -> 6 frame drop
             # =================================================
 
@@ -395,9 +588,15 @@ async def main():
                 and dropped_frames > 0
             ):
 
+                total_dropped_frames += (
+                    dropped_frames
+                )
+
+
                 print(
                     f"[FRAME] "
-                    f"Dropped {dropped_frames} frame(s)"
+                    f"Dropped "
+                    f"{dropped_frames} frame(s)"
                 )
 
 
@@ -410,7 +609,9 @@ async def main():
             # AI 추론
             # =================================================
 
-            ai_start = time.perf_counter()
+            ai_start = (
+                time.perf_counter()
+            )
 
 
             final_result, state, annotated_frame = (
@@ -429,13 +630,21 @@ async def main():
             )
 
 
-            total_ai_time += ai_elapsed
+            total_ai_time += (
+                ai_elapsed
+            )
+
 
             processed_frames += 1
 
 
+            # ---------------------------------------------
             # AI 판단 완료 시점
-            ai_result_time = now_ms()
+            # ---------------------------------------------
+
+            ai_result_time = (
+                now_ms()
+            )
 
 
             # =================================================
@@ -458,6 +667,9 @@ async def main():
 
             # =================================================
             # 스트리밍 화면 갱신
+            #
+            # AI annotation 결과가 있으면 annotation
+            # 없으면 원본 frame
             # =================================================
 
             if annotated_frame is not None:
@@ -465,6 +677,7 @@ async def main():
                 update_frame(
                     annotated_frame
                 )
+
 
             else:
 
@@ -483,7 +696,10 @@ async def main():
                     f"[AI] state={state}"
                 )
 
-                await asyncio.sleep(0)
+
+                await asyncio.sleep(
+                    0
+                )
 
                 continue
 
@@ -492,7 +708,9 @@ async def main():
             # Hazard
             # =================================================
 
-            hazard = final_result
+            hazard = (
+                final_result
+            )
 
 
             print(
@@ -504,32 +722,42 @@ async def main():
             # =================================================
             # BLE 비동기 전송
             #
-            # ACK를 기다리는 동안에도
+            # BLE가 연결된 경우만 실행
+            #
+            # ACK 기다리는 동안에도
             # 다음 AI 프레임 처리는 계속 가능
             # =================================================
 
-            current_time = now_ms()
+            current_time = (
+                now_ms()
+            )
 
 
             if (
-                current_time
+                ble_state["enabled"]
+                and current_time
                 - last_ble_time
                 >= BLE_INTERVAL_MS
             ):
 
+                # -----------------------------------------
                 # 이전 BLE 작업이 끝났을 때만
                 # 새로운 BLE 작업 시작
+                # -----------------------------------------
 
                 if (
                     ble_task is None
                     or ble_task.done()
                 ):
 
-                    ble_task = asyncio.create_task(
-                        send_hazard_ble(
-                            sender,
-                            hazard,
-                            ai_result_time
+                    ble_task = (
+                        asyncio.create_task(
+                            send_hazard_ble(
+                                sender,
+                                hazard,
+                                ai_result_time,
+                                ble_state
+                            )
                         )
                     )
 
@@ -568,30 +796,74 @@ async def main():
                 )
 
 
+                total_seen_frames = (
+                    processed_frames
+                    + total_dropped_frames
+                )
+
+
+                if total_seen_frames > 0:
+
+                    drop_rate = (
+                        total_dropped_frames
+                        / total_seen_frames
+                        * 100.0
+                    )
+
+
+                else:
+
+                    drop_rate = 0.0
+
+
                 print()
+
                 print(
                     "========== AI STATUS =========="
                 )
+
 
                 print(
                     f"Processed frames : "
                     f"{processed_frames}"
                 )
 
+
+                print(
+                    f"Dropped frames   : "
+                    f"{total_dropped_frames}"
+                )
+
+
+                print(
+                    f"Frame drop rate  : "
+                    f"{drop_rate:.2f}%"
+                )
+
+
                 print(
                     f"Average AI time  : "
                     f"{avg_ai_time * 1000:.1f} ms/frame"
                 )
+
 
                 print(
                     f"Average AI FPS   : "
                     f"{avg_ai_fps:.2f}"
                 )
 
+
                 print(
                     f"Running time     : "
                     f"{elapsed_total:.1f} s"
                 )
+
+
+                print(
+                    f"BLE connected    : "
+                    f"{ble_state['enabled']}"
+                )
+
 
                 print(
                     "==============================="
@@ -600,8 +872,13 @@ async def main():
                 print()
 
 
+            # =================================================
             # event loop 제어권 반환
-            await asyncio.sleep(0)
+            # =================================================
+
+            await asyncio.sleep(
+                0
+            )
 
 
     except asyncio.CancelledError:
@@ -621,6 +898,7 @@ async def main():
             f"[SYSTEM] 예외 발생: "
             f"{type(e).__name__}: {repr(e)}"
         )
+
 
         traceback.print_exc()
 
@@ -653,6 +931,7 @@ async def main():
 
                 camera.stop()
 
+
                 print(
                     "[SYSTEM] Camera stopped"
                 )
@@ -662,7 +941,8 @@ async def main():
 
                 print(
                     f"[SYSTEM] Camera 종료 오류: "
-                    f"{type(e).__name__}: {repr(e)}"
+                    f"{type(e).__name__}: "
+                    f"{repr(e)}"
                 )
 
 
@@ -681,7 +961,7 @@ async def main():
 
 
         # ---------------------------------------------
-        # 남은 BLE task 처리
+        # BLE 전송 task 종료 대기
         # ---------------------------------------------
 
         if (
@@ -692,6 +972,34 @@ async def main():
             try:
 
                 await ble_task
+
+
+            except Exception:
+
+                pass
+
+
+        # ---------------------------------------------
+        # BLE 재연결 task 종료
+        # ---------------------------------------------
+
+        if (
+            ble_reconnect_task is not None
+            and not ble_reconnect_task.done()
+        ):
+
+            ble_reconnect_task.cancel()
+
+
+            try:
+
+                await ble_reconnect_task
+
+
+            except asyncio.CancelledError:
+
+                pass
+
 
             except Exception:
 
@@ -711,7 +1019,8 @@ async def main():
 
             print(
                 f"[SYSTEM] BLE 종료 오류: "
-                f"{type(e).__name__}: {repr(e)}"
+                f"{type(e).__name__}: "
+                f"{repr(e)}"
             )
 
 
