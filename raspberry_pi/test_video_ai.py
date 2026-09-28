@@ -33,7 +33,7 @@ from senseon_pipeline import FrameAnalyzer
 MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
 
 # 실제 영상 파일명으로 수정
-VIDEO_PATH = ROOT_DIR / "test_videos" / "Test_DANGER.mp4"
+VIDEO_PATH = ROOT_DIR / "test_videos" / "Test_DANGER_640.mp4"
 
 # 성능 측정할 때는 False 추천
 LOOP_VIDEO = False
