@@ -32,7 +32,7 @@ MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
 
 # True  : 브라우저 스트리밍 사용
 # False : 스트리밍 끄기
-STREAM_ENABLED = False
+STREAM_ENABLED = True
 
 
 # =========================================================
