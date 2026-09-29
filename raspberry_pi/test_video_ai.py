@@ -36,7 +36,7 @@ MODEL_PATH = ROOT_DIR / "ai1" / "yolo11n.pt"
 VIDEO_PATH = (
     ROOT_DIR
     / "test_videos"
-    / "Test_DANGER_640.mp4"
+    / "Test_real_640.mp4"
 )
 
 # 성능 측정할 때는 False 추천
