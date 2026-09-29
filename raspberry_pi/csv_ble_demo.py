@@ -6,7 +6,7 @@ from ble_sender import BLESender
 from protocol import encode_hazard
 
 
-CSV_PATH = "test_video_log.csv"
+CSV_PATH = "realtest_risk_log.csv"
 
 RISK_PRIORITY = {
     "UNKNOWN": 0,
