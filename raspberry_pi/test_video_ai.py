@@ -47,6 +47,22 @@ BLE_CONNECT_TIMEOUT = 10.0
 
 
 # =========================================================
+# SAFE 전환 설정
+# =========================================================
+
+# CAUTION / DANGER 결과가 마지막으로 나온 뒤
+# 이 시간 동안 새로운 위험 결과가 없으면 SAFE 전송
+SAFE_CLEAR_DELAY_SEC = 0.5
+
+SAFE_HAZARD = {
+    "object": "none",
+    "direction": "CENTER",
+    "risk": "SAFE",
+    "ttc": 0.0
+}
+
+
+# =========================================================
 # 테스트 CSV 로그
 # =========================================================
 
@@ -101,7 +117,6 @@ def append_test_log(
         or TEST_LOG_PATH.stat().st_size == 0
     )
 
-
     with open(
         TEST_LOG_PATH,
         "a",
@@ -111,13 +126,10 @@ def append_test_log(
 
         writer = csv.writer(f)
 
-
         if need_header:
-
             writer.writerow(
                 TEST_LOG_HEADER
             )
-
 
         writer.writerow([
             video_name,
@@ -152,7 +164,6 @@ def get_hazard_value(
     if hazard is None:
         return default
 
-
     # dictionary 형태
     if isinstance(
         hazard,
@@ -164,7 +175,6 @@ def get_hazard_value(
             default
         )
 
-
     # 객체 형태
     else:
 
@@ -174,12 +184,60 @@ def get_hazard_value(
             default
         )
 
-
     if value is None:
         return ""
 
-
     return value
+
+
+# =========================================================
+# SAFE 패킷 전송
+# =========================================================
+
+async def send_safe_packet(sender, ble_enabled):
+
+    if not ble_enabled:
+        return
+
+    try:
+
+        packet = encode_hazard(
+            SAFE_HAZARD
+        )
+
+        sender.clear_ack()
+
+        send_success = await sender.send(
+            packet
+        )
+
+        if not send_success:
+
+            print(
+                "[BLE] SAFE 전송 실패"
+            )
+
+            return
+
+        ack_received = await sender.wait_for_ack()
+
+        if ack_received:
+
+            print(
+                "[BLE] SAFE 전송 완료 -> 진동 OFF"
+            )
+
+        else:
+
+            print(
+                "[BLE] SAFE ACK 수신 실패"
+            )
+
+    except Exception as e:
+
+        print(
+            f"[BLE SAFE ERROR] {e}"
+        )
 
 
 # =========================================================
@@ -203,11 +261,9 @@ async def main():
             "[SYSTEM] AI 모델 로드 시작"
         )
 
-
         analyzer = FrameAnalyzer(
             str(MODEL_PATH)
         )
-
 
         print(
             "[SYSTEM] AI 모델 로드 완료"
@@ -221,7 +277,6 @@ async def main():
         cap = cv2.VideoCapture(
             str(VIDEO_PATH)
         )
-
 
         if not cap.isOpened():
 
@@ -244,11 +299,9 @@ async def main():
             cv2.CAP_PROP_FPS
         )
 
-
         if source_fps <= 0:
 
             source_fps = 30.0
-
 
         total_source_frames = int(
             cap.get(
@@ -256,17 +309,14 @@ async def main():
             )
         )
 
-
         original_duration = (
             total_source_frames
             / source_fps
         )
 
-
         video_name = (
             VIDEO_PATH.name
         )
-
 
         print()
 
@@ -274,29 +324,24 @@ async def main():
             "========== VIDEO INFO =========="
         )
 
-
         print(
             f"Source FPS     : "
             f"{source_fps:.2f}"
         )
-
 
         print(
             f"Total Frames   : "
             f"{total_source_frames}"
         )
 
-
         print(
             f"Duration       : "
             f"{original_duration:.2f} sec"
         )
 
-
         print(
             "================================"
         )
-
 
         print(
             f"[LOG] CSV 저장 위치: "
@@ -313,9 +358,7 @@ async def main():
             daemon=True
         )
 
-
         stream_thread.start()
-
 
         print(
             "[SYSTEM] Live stream server started"
@@ -330,7 +373,6 @@ async def main():
             "[SYSTEM] ESP32 BLE 연결 시도"
         )
 
-
         try:
 
             await asyncio.wait_for(
@@ -338,29 +380,23 @@ async def main():
                 timeout=BLE_CONNECT_TIMEOUT
             )
 
-
             ble_enabled = True
-
 
             print(
                 "[SYSTEM] ESP32 BLE 연결 완료"
             )
 
-
         except Exception as e:
 
             ble_enabled = False
-
 
             print(
                 "[SYSTEM] ESP32 연결 실패"
             )
 
-
             print(
                 "[SYSTEM] AI + 영상 + 스트리밍 모드로 계속 실행"
             )
-
 
             print(
                 f"[BLE] {e}"
@@ -373,7 +409,6 @@ async def main():
 
         loop_count = 1
 
-
         while True:
 
             # 영상 처음으로 이동
@@ -382,11 +417,9 @@ async def main():
                 0
             )
 
-
             video_start_real_time = (
                 time.perf_counter()
             )
-
 
             processed_frames = 0
             dropped_frames = 0
@@ -394,6 +427,17 @@ async def main():
             total_ai_time = 0.0
 
             current_frame_index = 0
+
+
+            # =================================================
+            # 진동 상태 관리
+            # =================================================
+
+            # 마지막으로 CAUTION / DANGER가 검출된 실제 시간
+            last_hazard_time = None
+
+            # SAFE가 이미 전송됐는지
+            safe_sent = True
 
 
             print()
@@ -468,11 +512,8 @@ async def main():
 
                     grabbed = cap.grab()
 
-
                     if not grabbed:
-
                         break
-
 
                     current_frame_index += 1
                     dropped_frames += 1
@@ -484,11 +525,8 @@ async def main():
 
                 ret, frame = cap.read()
 
-
                 if not ret:
-
                     break
-
 
                 current_frame_index += 1
                 processed_frames += 1
@@ -512,7 +550,6 @@ async def main():
                     time.perf_counter()
                 )
 
-
                 final_result, state, annotated_frame = (
                     await asyncio.to_thread(
                         analyzer.process,
@@ -522,22 +559,18 @@ async def main():
                     )
                 )
 
-
                 ai_end = (
                     time.perf_counter()
                 )
-
 
                 ai_time = (
                     ai_end
                     - ai_start
                 )
 
-
                 total_ai_time += (
                     ai_time
                 )
-
 
                 ai_result_time = (
                     now_ms()
@@ -553,7 +586,6 @@ async def main():
                     update_frame(
                         annotated_frame
                     )
-
 
                 else:
 
@@ -575,7 +607,6 @@ async def main():
                         final_result
                     )
 
-
                     print(
                         "[AI]",
                         hazard
@@ -591,23 +622,51 @@ async def main():
                         "object"
                     )
 
-
                     direction = get_hazard_value(
                         hazard,
                         "direction"
                     )
-
 
                     risk = get_hazard_value(
                         hazard,
                         "risk"
                     )
 
-
                     ttc = get_hazard_value(
                         hazard,
                         "ttc"
                     )
+
+
+                    # =================================================
+                    # 위험 상태 추적
+                    # =================================================
+
+                    risk_upper = str(
+                        risk
+                    ).upper()
+
+
+                    # CAUTION / DANGER가 나오면
+                    # 마지막 위험 검출 시각 갱신
+                    if risk_upper in (
+                        "CAUTION",
+                        "DANGER"
+                    ):
+
+                        last_hazard_time = (
+                            time.perf_counter()
+                        )
+
+                        safe_sent = False
+
+
+                    # AI에서 직접 SAFE 결과가 들어온 경우
+                    elif risk_upper == "SAFE":
+
+                        safe_sent = True
+
+                        last_hazard_time = None
 
 
                     # ESP32 연결 안 되어 있으면
@@ -629,9 +688,7 @@ async def main():
                                 )
                             )
 
-
                             sender.clear_ack()
-
 
                             send_success = (
                                 await sender.send(
@@ -639,20 +696,17 @@ async def main():
                                 )
                             )
 
-
                             if send_success:
 
                                 ack_received = (
                                     await sender.wait_for_ack()
                                 )
 
-
                                 if ack_received:
 
                                     ack_time = (
                                         now_ms()
                                     )
-
 
                                     e2e_latency = (
                                         calc_latency_ms(
@@ -661,12 +715,10 @@ async def main():
                                         )
                                     )
 
-
                                     print(
                                         f"[LATENCY] "
                                         f"{e2e_latency:.2f} ms"
                                     )
-
 
                                     # 기존 senseon_log.csv
                                     save_log(
@@ -675,20 +727,17 @@ async def main():
                                         e2e_latency
                                     )
 
-
                                 else:
 
                                     print(
                                         "[BLE] ACK 수신 실패"
                                     )
 
-
                             else:
 
                                 print(
                                     "[BLE] 전송 실패"
                                 )
-
 
                         except Exception as e:
 
@@ -699,9 +748,6 @@ async def main():
 
                     # =================================================
                     # CSV : AI 결과 저장
-                    #
-                    # 현재 실제 시각이 아니라
-                    # "영상의 몇 초 지점인지" 저장
                     # =================================================
 
                     append_test_log(
@@ -735,6 +781,95 @@ async def main():
                     )
 
 
+                # =================================================
+                # ★ 추가된 핵심 부분
+                #
+                # 마지막 CAUTION / DANGER 이후
+                # 일정 시간 동안 새로운 위험 결과가 없으면
+                # SAFE 패킷을 1회 전송
+                # =================================================
+
+                if (
+                    not safe_sent
+                    and last_hazard_time is not None
+                ):
+
+                    time_since_last_hazard = (
+                        time.perf_counter()
+                        - last_hazard_time
+                    )
+
+                    if (
+                        time_since_last_hazard
+                        >= SAFE_CLEAR_DELAY_SEC
+                    ):
+
+                        print(
+                            "[AI] 위험 해제 -> SAFE 전송"
+                        )
+
+                        await send_safe_packet(
+                            sender,
+                            ble_enabled
+                        )
+
+                        safe_sent = True
+                        last_hazard_time = None
+
+                        append_test_log(
+                            video_name=video_name,
+                            loop_count=loop_count,
+                            event="SAFE_CLEAR",
+
+                            video_time_sec=round(
+                                current_video_time,
+                                3
+                            ),
+
+                            state="READY",
+                            object_name="none",
+                            direction="CENTER",
+                            risk="SAFE",
+                            ttc=0.0
+                        )
+
+
+            # =================================================
+            # ★ 영상 종료 시 진동 강제 해제
+            # =================================================
+
+            if not safe_sent:
+
+                print(
+                    "[SYSTEM] 영상 종료 -> SAFE 전송"
+                )
+
+                await send_safe_packet(
+                    sender,
+                    ble_enabled
+                )
+
+                safe_sent = True
+                last_hazard_time = None
+
+                append_test_log(
+                    video_name=video_name,
+                    loop_count=loop_count,
+                    event="SAFE_END",
+
+                    video_time_sec=round(
+                        original_duration,
+                        3
+                    ),
+
+                    state="READY",
+                    object_name="none",
+                    direction="CENTER",
+                    risk="SAFE",
+                    ttc=0.0
+                )
+
+
             # =================================================
             # 영상 1회 종료 후 성능 계산
             # =================================================
@@ -744,12 +879,10 @@ async def main():
                 - video_start_real_time
             )
 
-
             total_seen_frames = (
                 processed_frames
                 + dropped_frames
             )
-
 
             if total_seen_frames > 0:
 
@@ -758,7 +891,6 @@ async def main():
                     / total_seen_frames
                     * 100.0
                 )
-
 
             else:
 
@@ -772,7 +904,6 @@ async def main():
                     / actual_duration
                 )
 
-
             else:
 
                 processing_fps = 0.0
@@ -785,12 +916,16 @@ async def main():
                     / processed_frames
                 )
 
+                if avg_ai_time > 0:
 
-                avg_ai_fps = (
-                    1.0
-                    / avg_ai_time
-                )
+                    avg_ai_fps = (
+                        1.0
+                        / avg_ai_time
+                    )
 
+                else:
+
+                    avg_ai_fps = 0.0
 
             else:
 
@@ -847,76 +982,63 @@ async def main():
             print()
             print()
 
-
             print(
                 "========== FINAL RESULT =========="
             )
-
 
             print(
                 f"Original Duration : "
                 f"{original_duration:.2f} sec"
             )
 
-
             print(
                 f"Actual Duration   : "
                 f"{actual_duration:.2f} sec"
             )
-
 
             print(
                 f"Source FPS        : "
                 f"{source_fps:.2f}"
             )
 
-
             print(
                 f"Processing FPS    : "
                 f"{processing_fps:.2f}"
             )
-
 
             print(
                 f"Average AI Time   : "
                 f"{avg_ai_time * 1000:.1f} ms/frame"
             )
 
-
             print(
                 f"Average AI FPS    : "
                 f"{avg_ai_fps:.2f}"
             )
-
 
             print(
                 f"Processed Frames  : "
                 f"{processed_frames}"
             )
 
-
             print(
                 f"Dropped Frames    : "
                 f"{dropped_frames}"
             )
-
 
             print(
                 f"Frame Drop Rate   : "
                 f"{drop_rate:.2f}%"
             )
 
-
             print(
                 "=================================="
             )
-
 
             print(
                 f"[LOG] 테스트 결과 저장 완료: "
                 f"{TEST_LOG_PATH}"
             )
-
 
             print()
             print()
@@ -930,9 +1052,7 @@ async def main():
 
                 break
 
-
             loop_count += 1
-
 
             print(
                 "[SYSTEM] 영상 처음부터 다시 재생"
@@ -950,6 +1070,28 @@ async def main():
 
     finally:
 
+        # =================================================
+        # 프로그램 종료 시에도 진동 OFF 보장
+        # =================================================
+
+        if ble_enabled:
+
+            try:
+
+                print(
+                    "[SYSTEM] 종료 전 SAFE 전송"
+                )
+
+                await send_safe_packet(
+                    sender,
+                    ble_enabled
+                )
+
+            except Exception:
+
+                pass
+
+
         if cap is not None:
 
             cap.release()
@@ -960,7 +1102,6 @@ async def main():
             try:
 
                 await sender.disconnect()
-
 
             except Exception:
 
