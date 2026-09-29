@@ -11,7 +11,7 @@ def create_collision_zone(
     frame_height,
     x_min_ratio=0.35,
     x_max_ratio=0.65,
-    y_min_ratio=0.55,
+    y_min_ratio=0.0,
     y_max_ratio=1.0,
 ):
     """
