@@ -45,21 +45,9 @@ LOOP_VIDEO = False
 # ESP32 없을 때 연결 시도 시간
 BLE_CONNECT_TIMEOUT = 10.0
 
-
-# =========================================================
-# SAFE 전환 설정
-# =========================================================
-
-# CAUTION / DANGER 결과가 마지막으로 나온 뒤
-# 이 시간 동안 새로운 위험 결과가 없으면 SAFE 전송
-SAFE_CLEAR_DELAY_SEC = 0.5
-
-SAFE_HAZARD = {
-    "object": "none",
-    "direction": "CENTER",
-    "risk": "SAFE",
-    "ttc": 0.0
-}
+# main.py와 동일하게 BLE 전송은 최대 5Hz
+# ACK 대기 때문에 영상/AI 루프가 멈추지 않도록 비동기 task로 전송
+BLE_INTERVAL_MS = 200
 
 
 # =========================================================
@@ -191,18 +179,28 @@ def get_hazard_value(
 
 
 # =========================================================
-# SAFE 패킷 전송
+# BLE 비동기 전송
+#
+# main.py와 동일한 방식:
+# ACK를 기다리는 동안에도 영상/AI 처리는 계속 진행
 # =========================================================
 
-async def send_safe_packet(sender, ble_enabled):
-
-    if not ble_enabled:
-        return
+async def send_hazard_ble(
+    sender,
+    hazard,
+    ai_result_time,
+    ble_state,
+    latency_state
+):
 
     try:
 
         packet = encode_hazard(
-            SAFE_HAZARD
+            hazard
+        )
+
+        print(
+            f"[BLE] packet: {packet}"
         )
 
         sender.clear_ack()
@@ -214,29 +212,50 @@ async def send_safe_packet(sender, ble_enabled):
         if not send_success:
 
             print(
-                "[BLE] SAFE 전송 실패"
+                "[BLE] 전송 실패"
             )
 
             return
 
+        # SAFE 패킷은 send()가 끝나는 순간 ESP32로 전달됨.
+        # ACK는 latency 측정을 위해 뒤에서 기다리되 AI 루프를 막지 않음.
         ack_received = await sender.wait_for_ack()
 
-        if ack_received:
+        if not ack_received:
 
             print(
-                "[BLE] SAFE 전송 완료 -> 진동 OFF"
+                "[BLE] ACK 수신 실패"
             )
 
-        else:
+            return
 
-            print(
-                "[BLE] SAFE ACK 수신 실패"
-            )
+        ack_time = now_ms()
+
+        e2e_latency = calc_latency_ms(
+            ai_result_time,
+            ack_time
+        )
+
+        latency_state["last_e2e_latency"] = (
+            e2e_latency
+        )
+
+        print(
+            f"[LATENCY] {e2e_latency:.2f} ms"
+        )
+
+        save_log(
+            hazard,
+            e2e_latency_ms=e2e_latency
+        )
+
+    except asyncio.CancelledError:
+        raise
 
     except Exception as e:
 
         print(
-            f"[BLE SAFE ERROR] {e}"
+            f"[BLE ERROR] {e}"
         )
 
 
@@ -250,6 +269,14 @@ async def main():
 
     cap = None
     ble_enabled = False
+
+    # main.py와 동일한 BLE 비동기 전송 상태
+    ble_task = None
+    last_ble_time = 0
+
+    latency_state = {
+        "last_e2e_latency": None
+    }
 
     try:
 
@@ -429,17 +456,6 @@ async def main():
             current_frame_index = 0
 
 
-            # =================================================
-            # 진동 상태 관리
-            # =================================================
-
-            # 마지막으로 CAUTION / DANGER가 검출된 실제 시간
-            last_hazard_time = None
-
-            # SAFE가 이미 전송됐는지
-            safe_sent = True
-
-
             print()
 
             print(
@@ -598,276 +614,169 @@ async def main():
                 # AI 결과
                 # =================================================
 
-                if (
-                    state == "READY"
-                    and final_result is not None
-                ):
-
-                    hazard = (
-                        final_result
-                    )
+                if state != "READY":
 
                     print(
-                        "[AI]",
-                        hazard
+                        f"[AI] state={state}"
                     )
 
-
-                    # ---------------------------------------------
-                    # Hazard 정보
-                    # ---------------------------------------------
-
-                    object_name = get_hazard_value(
-                        hazard,
-                        "object"
-                    )
-
-                    direction = get_hazard_value(
-                        hazard,
-                        "direction"
-                    )
-
-                    risk = get_hazard_value(
-                        hazard,
-                        "risk"
-                    )
-
-                    ttc = get_hazard_value(
-                        hazard,
-                        "ttc"
-                    )
+                    await asyncio.sleep(0)
+                    continue
 
 
-                    # =================================================
-                    # 위험 상태 추적
-                    # =================================================
-
-                    risk_upper = str(
-                        risk
-                    ).upper()
-
-
-                    # CAUTION / DANGER가 나오면
-                    # 마지막 위험 검출 시각 갱신
-                    if risk_upper in (
-                        "CAUTION",
-                        "DANGER"
-                    ):
-
-                        last_hazard_time = (
-                            time.perf_counter()
-                        )
-
-                        safe_sent = False
-
-
-                    # AI에서 직접 SAFE 결과가 들어온 경우
-                    elif risk_upper == "SAFE":
-
-                        safe_sent = True
-
-                        last_hazard_time = None
-
-
-                    # ESP32 연결 안 되어 있으면
-                    # latency 칸은 빈칸 유지
-                    e2e_latency = ""
-
-
-                    # =================================================
-                    # BLE 연결되어 있을 때만 전송
-                    # =================================================
-
-                    if ble_enabled:
-
-                        try:
-
-                            packet = (
-                                encode_hazard(
-                                    hazard
-                                )
-                            )
-
-                            sender.clear_ack()
-
-                            send_success = (
-                                await sender.send(
-                                    packet
-                                )
-                            )
-
-                            if send_success:
-
-                                ack_received = (
-                                    await sender.wait_for_ack()
-                                )
-
-                                if ack_received:
-
-                                    ack_time = (
-                                        now_ms()
-                                    )
-
-                                    e2e_latency = (
-                                        calc_latency_ms(
-                                            ai_result_time,
-                                            ack_time
-                                        )
-                                    )
-
-                                    print(
-                                        f"[LATENCY] "
-                                        f"{e2e_latency:.2f} ms"
-                                    )
-
-                                    # 기존 senseon_log.csv
-                                    save_log(
-                                        hazard,
-                                        e2e_latency_ms=
-                                        e2e_latency
-                                    )
-
-                                else:
-
-                                    print(
-                                        "[BLE] ACK 수신 실패"
-                                    )
-
-                            else:
-
-                                print(
-                                    "[BLE] 전송 실패"
-                                )
-
-                        except Exception as e:
-
-                            print(
-                                f"[BLE ERROR] {e}"
-                            )
-
-
-                    # =================================================
-                    # CSV : AI 결과 저장
-                    # =================================================
-
-                    append_test_log(
-                        video_name=video_name,
-                        loop_count=loop_count,
-                        event="AI_RESULT",
-
-                        video_time_sec=round(
-                            current_video_time,
-                            3
-                        ),
-
-                        state=state,
-
-                        object_name=object_name,
-
-                        direction=direction,
-
-                        risk=risk,
-
-                        ttc=ttc,
-
-                        latency_ms=(
-                            round(
-                                e2e_latency,
-                                2
-                            )
-                            if e2e_latency != ""
-                            else ""
-                        )
-                    )
-
-
-                # =================================================
-                # ★ 추가된 핵심 부분
-                #
-                # 마지막 CAUTION / DANGER 이후
-                # 일정 시간 동안 새로운 위험 결과가 없으면
-                # SAFE 패킷을 1회 전송
-                # =================================================
-
-                if (
-                    not safe_sent
-                    and last_hazard_time is not None
-                ):
-
-                    time_since_last_hazard = (
-                        time.perf_counter()
-                        - last_hazard_time
-                    )
-
-                    if (
-                        time_since_last_hazard
-                        >= SAFE_CLEAR_DELAY_SEC
-                    ):
-
-                        print(
-                            "[AI] 위험 해제 -> SAFE 전송"
-                        )
-
-                        await send_safe_packet(
-                            sender,
-                            ble_enabled
-                        )
-
-                        safe_sent = True
-                        last_hazard_time = None
-
-                        append_test_log(
-                            video_name=video_name,
-                            loop_count=loop_count,
-                            event="SAFE_CLEAR",
-
-                            video_time_sec=round(
-                                current_video_time,
-                                3
-                            ),
-
-                            state="READY",
-                            object_name="none",
-                            direction="CENTER",
-                            risk="SAFE",
-                            ttc=0.0
-                        )
-
-
-            # =================================================
-            # ★ 영상 종료 시 진동 강제 해제
-            # =================================================
-
-            if not safe_sent:
+                # main.py와 동일하게 READY이면
+                # final_result가 None이어도 그대로 hazard로 사용
+                # protocol.py에서 None은 none,CENTER,SAFE,None 으로 변환됨
+                hazard = final_result
 
                 print(
-                    "[SYSTEM] 영상 종료 -> SAFE 전송"
+                    "[AI]",
+                    hazard
                 )
 
-                await send_safe_packet(
-                    sender,
+
+                # ---------------------------------------------
+                # Hazard 정보 (CSV용)
+                # ---------------------------------------------
+
+                object_name = get_hazard_value(
+                    hazard,
+                    "object"
+                )
+
+                direction = get_hazard_value(
+                    hazard,
+                    "direction"
+                )
+
+                risk = get_hazard_value(
+                    hazard,
+                    "risk"
+                )
+
+                ttc = get_hazard_value(
+                    hazard,
+                    "ttc"
+                )
+
+                # None은 실제 BLE 패킷상 SAFE 해제 상태
+                if hazard is None:
+                    object_name = "none"
+                    direction = "CENTER"
+                    risk = "SAFE"
+                    ttc = "None"
+
+
+                # =================================================
+                # BLE 비동기 전송
+                #
+                # 중요:
+                # 여기서 ACK를 직접 await하지 않음.
+                # main.py처럼 별도 task가 ACK를 기다리므로
+                # 테스트 영상의 다음 프레임/SAFE 프레임을 놓치지 않음.
+                # =================================================
+
+                current_time = now_ms()
+
+                # SAFE(None 포함)는 모터 OFF 명령이므로 최우선 전송
+                is_safe = (
+                    hazard is None
+                    or str(risk).upper() == "SAFE"
+                )
+
+                if ble_enabled and is_safe:
+
+                    # 이전 CAUTION/DANGER ACK 대기 task가 남아 있으면
+                    # SAFE가 밀리지 않도록 취소 후 즉시 전송
+                    if (
+                        ble_task is not None
+                        and not ble_task.done()
+                    ):
+
+                        ble_task.cancel()
+
+                        try:
+                            await ble_task
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception:
+                            pass
+
+                    print(
+                        "[BLE] SAFE 우선 전송 -> 모터 OFF"
+                    )
+
+                    ble_task = asyncio.create_task(
+                        send_hazard_ble(
+                            sender,
+                            hazard,
+                            ai_result_time,
+                            {"enabled": ble_enabled},
+                            latency_state
+                        )
+                    )
+
+                    last_ble_time = current_time
+
+                elif (
                     ble_enabled
-                )
+                    and current_time - last_ble_time >= BLE_INTERVAL_MS
+                ):
 
-                safe_sent = True
-                last_hazard_time = None
+                    if (
+                        ble_task is None
+                        or ble_task.done()
+                    ):
+
+                        ble_task = asyncio.create_task(
+                            send_hazard_ble(
+                                sender,
+                                hazard,
+                                ai_result_time,
+                                {"enabled": ble_enabled},
+                                latency_state
+                            )
+                        )
+
+                        last_ble_time = current_time
+
+
+                # =================================================
+                # CSV : AI 결과 저장
+                # =================================================
 
                 append_test_log(
                     video_name=video_name,
                     loop_count=loop_count,
-                    event="SAFE_END",
+                    event="AI_RESULT",
 
                     video_time_sec=round(
-                        original_duration,
+                        current_video_time,
                         3
                     ),
 
-                    state="READY",
-                    object_name="none",
-                    direction="CENTER",
-                    risk="SAFE",
-                    ttc=0.0
+                    state=state,
+
+                    object_name=object_name,
+
+                    direction=direction,
+
+                    risk=risk,
+
+                    ttc=ttc,
+
+                    latency_ms=(
+                        round(
+                            latency_state["last_e2e_latency"],
+                            2
+                        )
+                        if latency_state["last_e2e_latency"] is not None
+                        else ""
+                    )
                 )
+
+                # BLE task가 실행될 기회를 줌
+                await asyncio.sleep(0)
 
 
             # =================================================
@@ -1070,25 +979,15 @@ async def main():
 
     finally:
 
-        # =================================================
-        # 프로그램 종료 시에도 진동 OFF 보장
-        # =================================================
-
-        if ble_enabled:
+        # 남아 있는 BLE 전송 task가 있으면 마무리
+        if (
+            ble_task is not None
+            and not ble_task.done()
+        ):
 
             try:
-
-                print(
-                    "[SYSTEM] 종료 전 SAFE 전송"
-                )
-
-                await send_safe_packet(
-                    sender,
-                    ble_enabled
-                )
-
+                await ble_task
             except Exception:
-
                 pass
 
 
