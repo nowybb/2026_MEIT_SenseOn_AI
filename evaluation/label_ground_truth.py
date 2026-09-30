@@ -3,7 +3,7 @@ import os
 import cv2
 
 
-VIDEO_PATH = "ai1/videos/test_receding.mp4"
+VIDEO_PATH = "ai1/videos/test2.mp4"
 OUTPUT_PATH = "evaluation/ground_truth/events.csv"
 
 video_name = os.path.basename(VIDEO_PATH)
