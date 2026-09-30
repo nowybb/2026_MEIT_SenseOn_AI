@@ -8,8 +8,18 @@ __pycache__/
 ai1/outputs/
 ai1/runs/
 
+# Model weights
+*.pt
 
 # Environment
 .env
-.DS_Storeruns/
+.DS_Store
+
+# Toy dataset
 toy_car_dataset/
+
+# Training data / generated datasets
+training/datasets/
+
+# Training / inference outputs
+runs/
