@@ -40,12 +40,7 @@ COMPARE_DIR = OUTPUT_DIR / "trajectory_comparison"
 COMPARE_DIR.mkdir(parents=True, exist_ok=True)
 
 VIDEO_NAMES = [
-    "test1.mp4",
-    "test2.mp4",
-    "test3.mp4",
-    "test4.mp4",
-    "test5.mp4",
-    "test_receding.mp4",
+    "realtest.mp4",
 ]
 
 HISTORY_SIZE = 10
