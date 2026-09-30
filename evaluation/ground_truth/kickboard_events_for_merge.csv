@@ -1,0 +1,4 @@
+﻿video,event_id,start_sec,end_sec,gt_warning,description
+test10.mp4,1,0.17,4.0,1,킥보드 위험 상황
+test11.mp4,1,2.5,7.0,1,킥보드 위험 상황
+test12.mp4,1,0.0,5.0,1,킥보드 위험 상황

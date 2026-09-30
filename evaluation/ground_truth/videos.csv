@@ -4,5 +4,14 @@ test2.mp4,,complete,전체 구간 SAFE
 test3.mp4,12.42,complete,0.54초부터 영상 끝까지 위험
 test4.mp4,9.88,complete,0.96~4.70초 위험
 test5.mp4,19.04,complete,9.67초부터 영상 끝까지 위험
+test6.mp4,9.61,complete,킥보드 위험도 평가
+test7.mp4,3.00,complete,킥보드 위험도 평가
+test8.mp4,2.75,complete,킥보드 위험도 평가
+test9.mp4,7.17,complete,킥보드 위험도 평가
+test10.mp4,13.88,complete,킥보드 위험도 평가
+test11.mp4,10.12,complete,킥보드 위험도 평가
+test12.mp4,5.67,complete,킥보드 위험도 평가
+test13.mp4,7.17,complete,킥보드 위험도 평가
+test14.mp4,6.04,complete,킥보드 위험도 평가
 test_receding.mp4,25.75,complete,9.40~18.76초 위험
 realtest.mp4,17.43,complete,0.70~17.43초 위험
