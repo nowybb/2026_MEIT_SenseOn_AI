@@ -1,0 +1,2 @@
+﻿samples,TP,FP,FN,TN,precision,recall,f1,accuracy
+393,0,24,83,286,0.0,0.0,0,0.727735368956743
